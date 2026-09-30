@@ -104,10 +104,10 @@ def run_eval_cli(
             base_str = "N/A"
             if cmp.base_result is not None:
                 base_status = "PASS" if cmp.base_result.passed else "FAIL"
-                base_str = f"{base_status} ({cmp.base_result.passed_runs}/{cmp.base_result.total_runs} runs)"
+                base_str = f"{base_status} ({cmp.base_result.passed_turns}/{cmp.base_result.total_turns} runs)"
 
             print(f"[{cmp.status}] {cmp.scenario_path.name}")
-            print(f"  Current: {cur_status} ({cmp.current_result.passed_runs}/{cmp.current_result.total_runs} runs)")
+            print(f"  Current: {cur_status} ({cmp.current_result.passed_turns}/{cmp.current_result.total_turns} runs)")
             print(f"  Base:    {base_str}")
 
             if cmp.status == "REGRESSED":
@@ -132,15 +132,15 @@ def run_eval_cli(
         res = run_scenario_file(path, invoker=invoker, runs=runs)
         if res.passed:
             passed_count += 1
-            print(f"[PASS] {res.scenario_name} ({res.passed_runs}/{res.total_runs} runs passed)")
+            print(f"[PASS] {res.scenario_name} ({res.passed_turns}/{res.total_turns} runs passed)")
         else:
             failed_count += 1
-            print(f"[FAIL] {res.scenario_name} ({res.passed_runs}/{res.total_runs} runs passed)")
+            print(f"[FAIL] {res.scenario_name} ({res.passed_turns}/{res.total_turns} runs passed)")
             for err in res.validation_errors:
                 print(f"  - Static validation error: {err}", file=sys.stderr)
             for err in res.self_test_errors:
                 print(f"  - Excludes self-test error: {err}", file=sys.stderr)
-            for idx, run in enumerate(res.run_results, 1):
+            for idx, run in enumerate(res.turn_results, 1):
                 if not run.passed:
                     for msg in run.error_messages():
                         print(f"  - Run {idx}: {msg}", file=sys.stderr)

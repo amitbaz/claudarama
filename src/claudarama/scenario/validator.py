@@ -6,9 +6,25 @@ from pathlib import Path
 import re
 from typing import Any, Optional
 
-ALLOWED_TOP_LEVEL_KEYS = {"name", "description", "role", "prompt", "checks", "judge"}
+ALLOWED_TOP_LEVEL_KEYS = {"name", "description", "role", "prompt", "checks", "judge", "steps"}
 ALLOWED_CHECKS_KEYS = {"includes", "excludes"}
 
+
+@dataclass
+
+@dataclass
+class ScenarioStep:
+    type: str
+
+@dataclass
+class MockLlmTurnsStep(ScenarioStep):
+    type: str = "mock_llm_turns"
+    turns: list[dict[str, Any]] = field(default_factory=list)
+
+@dataclass
+class CeoActionStep(ScenarioStep):
+    type: str = "ceo_action"
+    input: str = ""
 
 @dataclass
 class ScenarioChecks:
@@ -26,6 +42,7 @@ class Scenario:
     description: str = ""
     checks: ScenarioChecks = field(default_factory=ScenarioChecks)
     judge: Optional[str] = None
+    steps: list[ScenarioStep] = field(default_factory=list)
 
 
 @dataclass
@@ -148,6 +165,30 @@ def validate_scenario(data: Any) -> ValidationResult:
     if not has_active_assertions and not checks_declared and judge is None:
         errors.append("Scenario must declare at least one check ('checks.includes', 'checks.excludes', or 'judge').")
 
+
+    parsed_steps = []
+    steps_raw = data.get("steps", [])
+    if not isinstance(steps_raw, list):
+        errors.append("Field 'steps' must be a list if provided.")
+    else:
+        for i, step in enumerate(steps_raw):
+            if not isinstance(step, dict):
+                errors.append(f"Step at index {i} must be an object.")
+                continue
+            step_type = step.get("type")
+            if step_type not in ("mock_llm_turns", "ceo_action"):
+                errors.append(f"Step at index {i} has invalid type: {step_type}")
+            elif step_type == "mock_llm_turns":
+                if "turns" not in step or not isinstance(step["turns"], list):
+                    errors.append(f"Step at index {i} (mock_llm_turns) must have a 'turns' list.")
+                else:
+                    parsed_steps.append(MockLlmTurnsStep(turns=step["turns"]))
+            elif step_type == "ceo_action":
+                if "input" not in step or step["input"] not in ("YES", "NO", "DISCUSS"):
+                    errors.append(f"Step at index {i} (ceo_action) must have an 'input' string of YES, NO, or DISCUSS.")
+                else:
+                    parsed_steps.append(CeoActionStep(input=step["input"]))
+
     if errors:
         return ValidationResult(valid=False, errors=errors)
 
@@ -162,6 +203,7 @@ def validate_scenario(data: Any) -> ValidationResult:
         description=description.strip(),
         checks=ScenarioChecks(includes=includes, excludes=excludes),
         judge=judge.strip() if judge else None,
+        steps=parsed_steps,
     )
     return ValidationResult(valid=True, errors=[], scenario=scenario)
 

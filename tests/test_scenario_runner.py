@@ -16,10 +16,10 @@ def test_evaluate_scenario_passes_when_includes_and_excludes_satisfied():
     result = evaluate_scenario(scenario, invoker=invoker, runs=1)
 
     assert result.passed is True
-    assert result.total_runs == 1
-    assert result.passed_runs == 1
-    assert len(result.run_results) == 1
-    assert result.run_results[0].passed is True
+    assert result.total_turns == 1
+    assert result.passed_turns == 1
+    assert len(result.turn_results) == 1
+    assert result.turn_results[0].passed is True
 
 
 def test_evaluate_scenario_fails_when_excludes_matched():
@@ -33,9 +33,9 @@ def test_evaluate_scenario_fails_when_excludes_matched():
     result = evaluate_scenario(scenario, invoker=invoker, runs=1)
 
     assert result.passed is False
-    assert result.total_runs == 1
-    assert result.passed_runs == 0
-    assert result.run_results[0].passed is False
+    assert result.total_turns == 1
+    assert result.passed_turns == 0
+    assert result.turn_results[0].passed is False
 
 
 def test_run_scenario_file_fails_free_checker_without_invoking_llm(tmp_path: Path):
@@ -81,9 +81,9 @@ def test_evaluate_scenario_with_strict_json_judge_pass():
     result = evaluate_scenario(scenario, invoker=invoker, runs=1)
 
     assert result.passed is True
-    assert result.run_results[0].judge_result is not None
-    assert result.run_results[0].judge_result.passed is True
-    assert result.run_results[0].judge_result.reason == "Function is correct"
+    assert result.turn_results[0].judge_result is not None
+    assert result.turn_results[0].judge_result.passed is True
+    assert result.turn_results[0].judge_result.reason == "Function is correct"
 
 
 def test_evaluate_scenario_with_strict_json_judge_fail_and_malformed():
@@ -100,9 +100,9 @@ def test_evaluate_scenario_with_strict_json_judge_fail_and_malformed():
     result = evaluate_scenario(scenario, invoker=invoker, runs=1)
 
     assert result.passed is False
-    assert result.run_results[0].judge_result is not None
-    assert result.run_results[0].judge_result.passed is False
-    assert "Malformed JSON" in result.run_results[0].judge_result.reason
+    assert result.turn_results[0].judge_result is not None
+    assert result.turn_results[0].judge_result.passed is False
+    assert "Malformed JSON" in result.turn_results[0].judge_result.reason
 
 
 def test_runs_majority_rule_passes_on_two_out_of_three():
@@ -117,9 +117,9 @@ def test_runs_majority_rule_passes_on_two_out_of_three():
     result = evaluate_scenario(scenario, invoker=invoker, runs=3)
 
     assert result.passed is True
-    assert result.total_runs == 3
-    assert result.passed_runs == 2
-    assert len(result.run_results) == 3
+    assert result.total_turns == 3
+    assert result.passed_turns == 2
+    assert len(result.turn_results) == 3
 
 
 def test_runs_majority_rule_fails_on_one_out_of_three():
@@ -134,9 +134,9 @@ def test_runs_majority_rule_fails_on_one_out_of_three():
     result = evaluate_scenario(scenario, invoker=invoker, runs=3)
 
     assert result.passed is False
-    assert result.total_runs == 3
-    assert result.passed_runs == 1
-    assert len(result.run_results) == 3
+    assert result.total_turns == 3
+    assert result.passed_turns == 1
+    assert len(result.turn_results) == 3
 
 
 def test_evaluate_against_ref_detects_improvements_and_regressions(tmp_path: Path):

@@ -237,6 +237,10 @@ def mark_turn_done(db_path: Path, turn_id: str) -> None:
     _set_turn_status(db_path, turn_id, "done")
 
 
+def mark_turn_queued(db_path: Path, turn_id: str) -> None:
+    _set_turn_status(db_path, turn_id, "queued")
+
+
 def mark_turn_failed(db_path: Path, turn_id: str) -> None:
     """Mark a turn as failed and set ended_at."""
     _set_turn_status(db_path, turn_id, "failed")

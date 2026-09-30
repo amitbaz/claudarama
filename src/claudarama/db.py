@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS turns (
     status TEXT NOT NULL,
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ended_at TIMESTAMP,
+    model TEXT,
+    branch TEXT,
     FOREIGN KEY(person_id) REFERENCES people(id)
 );
 
@@ -87,17 +89,24 @@ def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        # Databases created before escalation lack these columns.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(turns)")}
+        for col in ("model", "branch"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE turns ADD COLUMN {col} TEXT")
 
 
-def queue_turn(db_path: Path, person_id: str) -> str:
+def queue_turn(
+    db_path: Path, person_id: str, model: str | None = None, branch: str | None = None
+) -> str:
     """Create a new turn with status 'queued'. Returns the turn ID."""
     import uuid
 
     turn_id = str(uuid.uuid4())
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO turns (id, person_id, status) VALUES (?, ?, 'queued')",
-            (turn_id, person_id),
+            "INSERT INTO turns (id, person_id, status, model, branch) VALUES (?, ?, 'queued', ?, ?)",
+            (turn_id, person_id, model, branch),
         )
     return turn_id
 
@@ -119,7 +128,7 @@ def get_turn(db_path: Path, turn_id: str) -> dict | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT t.id, t.person_id, t.status, p.role "
+            "SELECT t.id, t.person_id, t.status, t.model, t.branch, p.role "
             "FROM turns t JOIN people p ON t.person_id = p.id "
             "WHERE t.id = ?",
             (turn_id,),

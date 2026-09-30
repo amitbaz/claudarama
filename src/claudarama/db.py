@@ -81,6 +81,15 @@ CREATE TABLE IF NOT EXISTS verdicts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (pull_request, head_commit, reviewer_id)
 );
+
+CREATE TABLE IF NOT EXISTS checkpoints (
+    id TEXT PRIMARY KEY,
+    person_id TEXT NOT NULL,
+    ticket TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(person_id) REFERENCES people(id)
+);
 """
 
 
@@ -146,6 +155,14 @@ def init_db(db_path: Path) -> None:
             # Pair-based messages that named a ticket join that ticket's thread.
             conn.execute(
                 "UPDATE messages SET thread = 'ticket:' || ticket WHERE ticket IS NOT NULL"
+            )
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(checkpoints)")}
+        if not cols:
+            conn.executescript(
+                "CREATE TABLE IF NOT EXISTS checkpoints ("
+                "id TEXT PRIMARY KEY, person_id TEXT NOT NULL, ticket TEXT NOT NULL, "
+                "content TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "FOREIGN KEY(person_id) REFERENCES people(id));"
             )
 
 
@@ -330,6 +347,16 @@ def save_brief(db_path: Path, turn_id: str, content: str) -> None:
         conn.execute(
             "INSERT OR REPLACE INTO briefs (turn_id, content) VALUES (?, ?)",
             (turn_id, content),
+        )
+
+
+def save_checkpoint(db_path: Path, person_id: str, ticket: str, content: str) -> None:
+    """Save a checkpoint for a person and ticket."""
+    import uuid
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO checkpoints (id, person_id, ticket, content) VALUES (?, ?, ?, ?)",
+            (str(uuid.uuid4()), person_id, ticket, content),
         )
 
 

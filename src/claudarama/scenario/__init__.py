@@ -1,6 +1,20 @@
 """Scenario harness package for Claudarama."""
 
 from claudarama.scenario.cli import run_checker_cli
+from claudarama.scenario.judge import (
+    CheckResult,
+    ExcludesSelfTestResult,
+    JudgeResult,
+    evaluate_exclude_pattern,
+    evaluate_excludes,
+    evaluate_include_pattern,
+    evaluate_includes,
+    parse_judge_output,
+    self_test_all_excludes,
+    self_test_excludes,
+    strict_json_judge,
+    verify_excludes_pattern,
+)
 from claudarama.scenario.sealing import (
     SealingResult,
     SealingViolation,
@@ -22,6 +36,9 @@ from claudarama.scenario.validator import (
 )
 
 __all__ = [
+    "CheckResult",
+    "ExcludesSelfTestResult",
+    "JudgeResult",
     "Scenario",
     "ScenarioChecks",
     "ScenarioValidationError",
@@ -30,13 +47,21 @@ __all__ = [
     "ValidationResult",
     "compare_scenario_constraints",
     "compare_scenario_sets",
+    "evaluate_exclude_pattern",
+    "evaluate_excludes",
+    "evaluate_include_pattern",
+    "evaluate_includes",
     "load_scenario",
     "load_scenarios_from_directory",
     "load_scenarios_from_git",
+    "parse_judge_output",
     "run_checker_cli",
     "run_sealing_cli",
+    "self_test_all_excludes",
+    "self_test_excludes",
+    "strict_json_judge",
     "validate_scenario",
     "validate_scenario_file",
     "validate_scenario_paths",
+    "verify_excludes_pattern",
 ]
-

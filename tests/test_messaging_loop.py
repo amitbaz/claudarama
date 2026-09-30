@@ -109,14 +109,14 @@ class TestStoreAndRetrieveMessages:
             receiver="leela",
             msg_type="BLOCKED",
             body="Stuck on auth",
-            ticket="GILI-42",
+            ticket="T-42",
         )
 
         with _connect(db_path) as conn:
             row = conn.execute(
                 "SELECT ticket FROM messages WHERE receiver = 'leela'",
             ).fetchone()
-        assert row["ticket"] == "GILI-42"
+        assert row["ticket"] == "T-42"
 
     def test_get_thread_returns_messages_in_order(self, tmp_path):
         from claudarama.db import get_thread, store_message

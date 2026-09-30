@@ -174,3 +174,31 @@ def test_every_turn_launches_with_generated_settings_and_dontask(tmp_path):
     hook = settings["hooks"]["PreToolUse"][0]["hooks"][0]
     assert hook["command"].endswith("-m claudarama.gate")
     assert launch.env["CLAUDARAMA_OFFICE"] == str(settings_path)
+
+def test_pr_merge_requires_verdict(tmp_path, monkeypatch):
+    import json
+    import sqlite3
+    from claudarama.gate import _check_pr_merge
+    from claudarama.db import init_db
+
+    db_path = tmp_path / "office.db"
+    init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT INTO people (id, name, role, level, manager_id) VALUES ('u1', 'Dev', 'eng', 2, 'm1')")
+        conn.execute("INSERT INTO people (id, name, role, level) VALUES ('m1', 'Lead', 'lead', 3)")
+        conn.execute("INSERT INTO turns (id, person_id, status) VALUES ('t1', 'u1', 'running')")
+
+    monkeypatch.setattr("claudarama.db.get_office_db_path", lambda: db_path)
+    monkeypatch.setattr("subprocess.check_output", lambda cmd, **k: json.dumps({"number": 123, "headRefOid": "abc"}).encode())
+
+    # No verdict
+    ok, msg = _check_pr_merge("gh pr merge 123", str(tmp_path / "t1.settings.json"))
+    assert not ok and "denied" in msg
+
+    # Add verdict
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT INTO verdicts (pull_request, head_commit, reviewer_id, verdict) VALUES (123, 'abc', 'm1', 'SHIP')")
+
+    ok, msg = _check_pr_merge("gh pr merge 123", str(tmp_path / "t1.settings.json"))
+    assert ok
+

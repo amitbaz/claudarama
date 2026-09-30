@@ -213,7 +213,46 @@ def _state_dir_access(tool_input: dict, cwd: str) -> bool:
     return False
 
 
-def decide(payload: object, allow: list[str], deny: list[str]) -> tuple[bool, str]:
+def _check_pr_merge(part: str, settings_path: str | None) -> tuple[bool, str]:
+    if not settings_path:
+        return False, "no settings path for PR merge check"
+    try:
+        import subprocess, sqlite3, json, shlex
+        from pathlib import Path
+        from claudarama.db import get_office_db_path
+        turn_id = Path(settings_path).name.removesuffix(".settings.json")
+        db_path = get_office_db_path()
+        args = shlex.split(part)
+        pr_target = ""
+        for a in args[3:]:
+            if not a.startswith("-"):
+                pr_target = a
+                break
+        cmd = ["gh", "pr", "view"]
+        if pr_target:
+            cmd.append(pr_target)
+        cmd.extend(["--json", "number,headRefOid"])
+        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+        data = json.loads(out)
+        pr, head = data["number"], data["headRefOid"]
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            turn = conn.execute("SELECT person_id FROM turns WHERE id = ?", (turn_id,)).fetchone()
+            if not turn:
+                return False, f"turn {turn_id} not found"
+            person = conn.execute("SELECT id, level, manager_id FROM people WHERE id = ?", (turn["person_id"],)).fetchone()
+            allowed = person["id"] if person["level"] >= 3 else person["manager_id"]
+            if not allowed:
+                return False, "reviewer has no manager and level < 3"
+            row = conn.execute("SELECT 1 FROM verdicts WHERE pull_request = ? AND head_commit = ? AND reviewer_id = ? AND verdict = 'SHIP'", (pr, head, allowed)).fetchone()
+            if not row:
+                return False, "denied: missing SHIP verdict from allowed reviewer for head commit"
+        return True, ""
+    except Exception as e:
+        return False, f"PR merge check failed: {e}"
+
+
+def decide(payload: object, allow: list[str], deny: list[str], settings_path: str | None = None) -> tuple[bool, str]:
     """Return ``(allowed, reason)`` for one PreToolUse payload."""
     if not isinstance(payload, dict) or not isinstance(payload.get("tool_name"), str):
         return False, "cannot parse hook input"
@@ -239,6 +278,10 @@ def decide(payload: object, allow: list[str], deny: list[str]) -> tuple[bool, st
                 return False, f"denied by rule {rule}"
         if not any(_rule_matches(rule, tool, part) for rule in allow):
             return False, f"{part or tool} is not on the allowlist (no allow rule matches)"
+        if part and part.startswith("gh pr merge"):
+            ok, msg = _check_pr_merge(part, settings_path)
+            if not ok:
+                return False, msg
     return True, "on the allowlist"
 
 

@@ -67,6 +67,15 @@ CREATE TABLE IF NOT EXISTS briefs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(turn_id) REFERENCES turns(id)
 );
+
+CREATE TABLE IF NOT EXISTS verdicts (
+    pull_request INTEGER NOT NULL,
+    head_commit TEXT NOT NULL,
+    reviewer_id TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (pull_request, head_commit, reviewer_id)
+);
 """
 
 
@@ -403,3 +412,11 @@ def get_person_by_name(db_path: Path, name: str) -> dict | None:
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT * FROM people WHERE name = ?", (name,)).fetchone()
     return dict(row) if row else None
+
+def record_verdict(db_path: Path, pull_request: int, head_commit: str, reviewer_id: str, verdict: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO verdicts (pull_request, head_commit, reviewer_id, verdict) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(pull_request, head_commit, reviewer_id) DO UPDATE SET verdict = excluded.verdict",
+            (pull_request, head_commit, reviewer_id, verdict),
+        )

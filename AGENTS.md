@@ -11,3 +11,17 @@ The project is still being designed. Before any work:
 3. No implementation before the owner approves the written spec and then the written plan for the sub-project.
 
 `docs/research/` holds research inputs (for example the oh-my-claudecode teardown). They are inputs, not decisions.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs for this repo live as GitHub issues, manipulated via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+We use the standard 5 triage roles mapping 1:1 with GitHub label strings (e.g. `needs-triage`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (one `GLOSSARY.md` and `docs/adr/` at the root). See `docs/agents/domain.md`.

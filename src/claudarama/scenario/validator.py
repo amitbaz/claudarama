@@ -1,0 +1,212 @@
+"""Static validator and schema checker for Claudarama scenario files."""
+
+from dataclasses import dataclass, field
+import json
+from pathlib import Path
+import re
+from typing import Any, Optional
+
+ALLOWED_TOP_LEVEL_KEYS = {"name", "description", "role", "prompt", "checks", "judge"}
+ALLOWED_CHECKS_KEYS = {"includes", "excludes"}
+
+
+@dataclass
+class ScenarioChecks:
+    """Assertions to evaluate on agent output."""
+    includes: list[str] = field(default_factory=list)
+    excludes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Scenario:
+    """Represents a validated scenario definition."""
+    name: str
+    role: str
+    prompt: str
+    description: str = ""
+    checks: ScenarioChecks = field(default_factory=ScenarioChecks)
+    judge: Optional[str] = None
+
+
+@dataclass
+class ValidationResult:
+    """Outcome of validating a scenario object or file."""
+    valid: bool
+    errors: list[str] = field(default_factory=list)
+    scenario: Optional[Scenario] = None
+
+
+class ScenarioValidationError(ValueError):
+    """Raised when a scenario definition or file fails schema validation."""
+    def __init__(self, errors: list[str]):
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
+def _validate_string_list(
+    raw_list: Any,
+    field_name: str,
+    errors: list[str],
+) -> list[str]:
+    """Validate that raw_list is a list of non-empty, non-whitespace strings."""
+    if not isinstance(raw_list, list):
+        errors.append(f"'{field_name}' must be a list of non-empty strings.")
+        return []
+
+    validated_strings: list[str] = []
+    has_invalid_element = False
+
+    for item in raw_list:
+        if not isinstance(item, str) or not item.strip():
+            has_invalid_element = True
+        else:
+            validated_strings.append(item.strip())
+
+    if has_invalid_element or len(raw_list) == 0:
+        errors.append(f"'{field_name}' must be a list of non-empty strings.")
+        return []
+
+    return validated_strings
+
+
+def _validate_regex_patterns(
+    patterns: list[str],
+    field_name: str,
+    errors: list[str],
+) -> None:
+    """Validate that all patterns compile as valid regular expressions."""
+    for pattern in patterns:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            errors.append(f"Invalid regex in '{field_name}' ({pattern!r}): {exc}")
+
+
+def validate_scenario(data: Any) -> ValidationResult:
+    """Validate raw scenario data against the schema without making LLM calls."""
+    errors: list[str] = []
+
+    if not isinstance(data, dict):
+        return ValidationResult(valid=False, errors=["Scenario definition must be a JSON object (dict)."])
+
+    # Disallow unexpected top-level keys (e.g. typos like 'roel')
+    unexpected_keys = sorted(set(data.keys()) - ALLOWED_TOP_LEVEL_KEYS)
+    if unexpected_keys:
+        errors.append(f"Unrecognized fields in scenario: {', '.join(unexpected_keys)}")
+
+    # Required fields: name, role, prompt
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip():
+        errors.append("Field 'name' is required and must be a non-empty string.")
+
+    role = data.get("role")
+    if not isinstance(role, str) or not role.strip():
+        errors.append("Field 'role' is required and must be a non-empty string.")
+
+    prompt = data.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        errors.append("Field 'prompt' is required and must be a non-empty string.")
+
+    # Optional description
+    description = data.get("description", "")
+    if description is not None and not isinstance(description, str):
+        errors.append("Field 'description' must be a string if provided.")
+    elif description is None:
+        description = ""
+
+    # Optional judge
+    judge = data.get("judge")
+    if judge is not None:
+        if not isinstance(judge, str) or not judge.strip():
+            errors.append("Field 'judge' must be a non-empty string if provided.")
+
+    # Parse and validate checks
+    includes: list[str] = []
+    excludes: list[str] = []
+    checks_declared = False
+
+    checks_raw = data.get("checks")
+    if checks_raw is not None:
+        checks_declared = True
+        if not isinstance(checks_raw, dict):
+            errors.append("Field 'checks' must be an object containing 'includes' and/or 'excludes'.")
+        else:
+            unexpected_checks_keys = sorted(set(checks_raw.keys()) - ALLOWED_CHECKS_KEYS)
+            if unexpected_checks_keys:
+                errors.append(f"Unrecognized fields in 'checks': {', '.join(unexpected_checks_keys)}")
+
+            if "includes" in checks_raw:
+                includes = _validate_string_list(checks_raw["includes"], "checks.includes", errors)
+                _validate_regex_patterns(includes, "checks.includes", errors)
+
+            if "excludes" in checks_raw:
+                excludes = _validate_string_list(checks_raw["excludes"], "checks.excludes", errors)
+                _validate_regex_patterns(excludes, "checks.excludes", errors)
+
+    # Require at least one validation criterion, but only flag if no other checks/judge errors occurred
+    has_active_assertions = bool(includes or excludes or (isinstance(judge, str) and judge.strip()))
+    if not has_active_assertions and not checks_declared and judge is None:
+        errors.append("Scenario must declare at least one check ('checks.includes', 'checks.excludes', or 'judge').")
+
+    if errors:
+        return ValidationResult(valid=False, errors=errors)
+
+    assert isinstance(name, str)
+    assert isinstance(role, str)
+    assert isinstance(prompt, str)
+
+    scenario = Scenario(
+        name=name.strip(),
+        role=role.strip(),
+        prompt=prompt.strip(),
+        description=description.strip(),
+        checks=ScenarioChecks(includes=includes, excludes=excludes),
+        judge=judge.strip() if judge else None,
+    )
+    return ValidationResult(valid=True, errors=[], scenario=scenario)
+
+
+def validate_scenario_file(file_path: str | Path) -> ValidationResult:
+    """Read a scenario JSON file and validate its schema."""
+    path = Path(file_path)
+    if not path.is_file():
+        return ValidationResult(valid=False, errors=[f"Scenario file not found: {path}"])
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except Exception as exc:
+        return ValidationResult(valid=False, errors=[f"Failed to read scenario file {path}: {exc}"])
+
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        return ValidationResult(valid=False, errors=[f"Malformed JSON in {path}: {exc}"])
+
+    return validate_scenario(data)
+
+
+def load_scenario(file_path: str | Path) -> Scenario:
+    """Load and validate a scenario from file, raising ScenarioValidationError on error."""
+    result = validate_scenario_file(file_path)
+    if not result.valid or result.scenario is None:
+        raise ScenarioValidationError(result.errors)
+    return result.scenario
+
+
+def validate_scenario_paths(paths: list[str | Path]) -> tuple[bool, dict[str, list[str]]]:
+    """Validate multiple scenario files.
+
+    Returns:
+        (all_valid, results_dict) where results_dict maps file path string to list of error strings.
+    """
+    all_valid = True
+    results: dict[str, list[str]] = {}
+
+    for path in paths:
+        path_str = str(path)
+        res = validate_scenario_file(path)
+        results[path_str] = res.errors
+        if not res.valid:
+            all_valid = False
+
+    return all_valid, results

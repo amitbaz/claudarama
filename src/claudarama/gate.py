@@ -74,9 +74,14 @@ def write_turn_settings(pack_dir: Path, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({
         "permissions": {"allow": allow, "deny": deny},
-        "hooks": {"PreToolUse": [{"matcher": "", "hooks": [
-            {"type": "command", "command": f"{shlex.quote(sys.executable)} -m claudarama.gate"}
-        ]}]},
+        "hooks": {
+            "PreToolUse": [{"matcher": "", "hooks": [
+                {"type": "command", "command": f"{shlex.quote(sys.executable)} -m claudarama.gate"}
+            ]}],
+            "PreCompact": [{"matcher": "", "hooks": [
+                {"type": "prompt", "prompt": "Save a checkpoint of your progress using the checkpoint tool before compaction."}
+            ]}]
+        },
     }), encoding="utf-8")
 
 

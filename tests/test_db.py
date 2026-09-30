@@ -33,3 +33,14 @@ def test_init_db_idempotent(tmp_path):
     # Calling init_db again on existing database should not fail
     init_db(db_path)
     assert db_path.exists()
+
+def test_save_checkpoint(tmp_path):
+    from claudarama.db import save_checkpoint
+    db_path = tmp_path / "office.db"
+    init_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT INTO people (id, name, role) VALUES ('u1', 'Test', 'tester')")
+    save_checkpoint(db_path, "u1", "123", "checkpoint content")
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT person_id, ticket, content FROM checkpoints").fetchone()
+        assert row == ("u1", "123", "checkpoint content")

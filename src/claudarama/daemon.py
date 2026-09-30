@@ -165,6 +165,16 @@ def create_mcp_server(
         record_verdict(db_path, pull_request, head_commit, reviewer_id, verdict)
         return {"ok": True, "pull_request": pull_request, "head_commit": head_commit, "verdict": verdict}
 
+    @server.tool()
+    def checkpoint(content: str, ctx: Context) -> dict:
+        """Save a checkpoint before compaction. Only works for turns running a ticket thread."""
+        from claudarama.db import save_checkpoint
+        identity = authenticate(db_path, _token_of(ctx))
+        if not identity.ticket:
+            raise ValueError("cannot save checkpoint without a ticket thread")
+        save_checkpoint(db_path, identity.person_id or "ceo", identity.ticket, content)
+        return {"ok": True}
+
     return server
 
 

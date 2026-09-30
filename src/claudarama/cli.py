@@ -51,6 +51,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mock response text for offline execution/testing",
     )
 
+    # up subcommand
+    up_parser = subparsers.add_parser(
+        "up",
+        help="Start the FastMCP daemon and initialize office.db",
+    )
+    up_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind the daemon (default: 127.0.0.1)",
+    )
+    up_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port to bind the daemon (default: 8000)",
+    )
+
+    # open subcommand
+    open_parser = subparsers.add_parser(
+        "open",
+        help="Connect an interactive Claude session to the daemon's MCP endpoint",
+    )
+    open_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Daemon host (default: 127.0.0.1)",
+    )
+    open_parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Daemon port (default: 8000)",
+    )
+
     return parser
 
 
@@ -66,6 +100,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         success, message = init_pack()
         print(message)
         return 0 if success else 1
+
+    if args.command == "up":
+        from claudarama.daemon import run_daemon
+
+        run_daemon(host=args.host, port=args.port)
+        return 0
+
+    if args.command == "open":
+        from claudarama.session import open_ceo_session
+
+        return open_ceo_session(host=args.host, port=args.port)
 
     if args.command == "eval":
         from claudarama.scenario.cli import run_eval_cli

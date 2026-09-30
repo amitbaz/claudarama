@@ -187,4 +187,5 @@ Each has a fallback chosen in the sub-project's spec:
 
 - how native deny rules such as `Bash(gh auth switch *)` treat chained commands, and the `--disallowedTools` pattern syntax for MCP tools;
 - the MCP HTTP transport from a plugin's `.mcp.json` to a locally started daemon.
+- the subscription login check: verified that `CLAUDE_CONFIG_DIR` loses the subscription login (reports "Not logged in"); built the fallback using the normal config directory with `--strict-mcp-config` and an explicit `--allowedTools` list.
 

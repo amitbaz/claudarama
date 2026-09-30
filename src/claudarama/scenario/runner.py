@@ -15,6 +15,9 @@ from claudarama.scenario.judge import (
     self_test_all_excludes,
 )
 from claudarama.scenario.validator import (
+    MockLlmTurnsStep,
+    CeoActionStep,
+
     Scenario,
     validate_scenario,
     validate_scenario_file,
@@ -59,17 +62,17 @@ class MockInvoker:
         if self._responses:
             return self._responses.pop(0)
         # Default judge response when evaluating judge prompt
-        if "[Agent Output]:" in prompt or (scenario.judge and scenario.judge in prompt):
+        if "[Person Output]:" in prompt or (scenario.judge and scenario.judge in prompt):
             return '{"pass": true, "reason": "Evaluated successfully"}'
         return self.default_response
 
 
 @dataclass
-class SingleRunResult:
+class SingleTurnResult:
     """Result of an individual execution run of a scenario."""
 
     passed: bool
-    agent_reply: str
+    person_reply: str
     include_checks: list[CheckResult] = field(default_factory=list)
     exclude_checks: list[CheckResult] = field(default_factory=list)
     judge_result: Optional[JudgeResult] = None
@@ -97,9 +100,9 @@ class ScenarioEvaluationResult:
 
     scenario_name: str
     passed: bool
-    total_runs: int
-    passed_runs: int
-    run_results: list[SingleRunResult] = field(default_factory=list)
+    total_turns: int
+    passed_turns: int
+    turn_results: list[SingleTurnResult] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
     self_test_errors: list[str] = field(default_factory=list)
 
@@ -123,13 +126,13 @@ def evaluate_scenario(
         return ScenarioEvaluationResult(
             scenario_name=scenario.name,
             passed=False,
-            total_runs=runs,
-            passed_runs=0,
+            total_turns=runs,
+            passed_turns=0,
             self_test_errors=failed_self_tests,
         )
 
     # Step 2: Execute runs
-    run_results: list[SingleRunResult] = []
+    turn_results: list[SingleTurnResult] = []
     passed_count = 0
 
     for _ in range(max(1, runs)):
@@ -146,7 +149,7 @@ def evaluate_scenario(
         judge_res: Optional[JudgeResult] = None
         if scenario.judge:
             # Invoking judge with judge instructions and the agent reply to evaluate
-            judge_prompt = f"{scenario.judge}\n\n[Agent Output]:\n{reply}"
+            judge_prompt = f"{scenario.judge}\n\n[Person Output]:\n{reply}"
             judge_raw = invoker.invoke(judge_prompt, scenario)
             judge_res = parse_judge_output(judge_raw)
             judge_passed = judge_res.passed
@@ -155,10 +158,10 @@ def evaluate_scenario(
         if run_passed:
             passed_count += 1
 
-        run_results.append(
-            SingleRunResult(
+        turn_results.append(
+            SingleTurnResult(
                 passed=run_passed,
-                agent_reply=reply,
+                person_reply=reply,
                 include_checks=inc_results,
                 exclude_checks=exc_results,
                 judge_result=judge_res,
@@ -171,9 +174,9 @@ def evaluate_scenario(
     return ScenarioEvaluationResult(
         scenario_name=scenario.name,
         passed=overall_passed,
-        total_runs=runs,
-        passed_runs=passed_count,
-        run_results=run_results,
+        total_turns=runs,
+        passed_turns=passed_count,
+        turn_results=turn_results,
     )
 
 
@@ -189,8 +192,8 @@ def run_scenario_file(
         return ScenarioEvaluationResult(
             scenario_name=path.stem,
             passed=False,
-            total_runs=runs,
-            passed_runs=0,
+            total_turns=runs,
+            passed_turns=0,
             validation_errors=val_res.errors,
         )
 
@@ -301,8 +304,8 @@ def evaluate_against_ref(
             base_res = ScenarioEvaluationResult(
                 scenario_name=path.stem,
                 passed=False,
-                total_runs=runs,
-                passed_runs=0,
+                total_turns=runs,
+                passed_turns=0,
                 validation_errors=base_errs,
             )
 
@@ -351,56 +354,53 @@ class ScenarioRunner:
         if not getattr(scenario, "steps", None):
             return evaluate_scenario(scenario, invoker=self.invoker, runs=runs)
 
-        run_results: list[SingleRunResult] = []
+        turn_results: list[SingleTurnResult] = []
         passed_count = 0
 
-        for _ in range(max(1, runs)):
-            final_reply_parts = []
-            for step in scenario.steps:
-                step_type = step.get("type")
-                if step_type == "mock_llm_turns":
-                    turns = step.get("turns", [])
-                    self.mock_turns_yielded.append(turns)
-                    final_reply_parts.append(json.dumps(turns))
-                elif step_type == "ceo_action":
-                    input_val = step.get("input", "")
-                    self.ceo_inputs.append(input_val)
-                    final_reply_parts.append(f"CEO ACTION: {input_val}")
-            
-            final_reply = "\n".join(final_reply_parts)
-            
-            inc_results = evaluate_includes(final_reply, scenario.checks.includes)
-            exc_results = evaluate_excludes(final_reply, scenario.checks.excludes)
+        # Deterministic multi-step execution (runs=1)
+        final_reply_parts = []
+        for step in scenario.steps:
+            if isinstance(step, MockLlmTurnsStep):
+                self.mock_turns_yielded.append(step.turns)
+                final_reply_parts.append(json.dumps(step.turns))
+            elif isinstance(step, CeoActionStep):
+                self.ceo_inputs.append(step.input)
+                final_reply_parts.append(f"CEO ACTION: {step.input}")
+        
+        final_reply = "\n".join(final_reply_parts)
+        
+        inc_results = evaluate_includes(final_reply, scenario.checks.includes)
+        exc_results = evaluate_excludes(final_reply, scenario.checks.excludes)
 
-            inc_passed = all(r.passed for r in inc_results)
-            exc_passed = all(r.passed for r in exc_results)
+        inc_passed = all(r.passed for r in inc_results)
+        exc_passed = all(r.passed for r in exc_results)
 
-            judge_passed = True
-            judge_res = None
-            if scenario.judge:
-                judge_prompt = f"{scenario.judge}\n\n[Agent Output]:\n{final_reply}"
-                judge_raw = self.invoker.invoke(judge_prompt, scenario)
-                judge_res = parse_judge_output(judge_raw)
-                judge_passed = judge_res.passed
+        judge_passed = True
+        judge_res = None
+        if scenario.judge:
+            judge_prompt = f"{scenario.judge}\n\n[Person Output]:\n{final_reply}"
+            judge_raw = self.invoker.invoke(judge_prompt, scenario)
+            judge_res = parse_judge_output(judge_raw)
+            judge_passed = judge_res.passed
 
-            run_passed = inc_passed and exc_passed and judge_passed
-            if run_passed:
-                passed_count += 1
+        run_passed = inc_passed and exc_passed and judge_passed
+        if run_passed:
+            passed_count += 1
 
-            run_results.append(
-                SingleRunResult(
-                    passed=run_passed,
-                    agent_reply=final_reply,
-                    include_checks=inc_results,
-                    exclude_checks=exc_results,
-                    judge_result=judge_res,
-                )
+        turn_results.append(
+            SingleTurnResult(
+                passed=run_passed,
+                person_reply=final_reply,
+                include_checks=inc_results,
+                exclude_checks=exc_results,
+                judge_result=judge_res,
             )
+        )
 
         return ScenarioEvaluationResult(
             scenario_name=scenario.name,
             passed=passed_count > (runs / 2),
-            total_runs=runs,
-            passed_runs=passed_count,
-            run_results=run_results,
+            total_turns=runs,
+            passed_turns=passed_count,
+            turn_results=turn_results,
         )

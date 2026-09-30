@@ -1,4 +1,4 @@
-from claudarama.scenario.validator import Scenario, ScenarioChecks
+from claudarama.scenario.validator import Scenario, ScenarioChecks, MockLlmTurnsStep, CeoActionStep
 from claudarama.scenario.runner import ScenarioRunner
 
 def test_scenario_runner_multi_step():
@@ -7,8 +7,8 @@ def test_scenario_runner_multi_step():
         role="eng",
         prompt="start",
         steps=[
-            {"type": "mock_llm_turns", "turns": [{"call": "tool", "result": "res"}]},
-            {"type": "ceo_action", "input": "YES"},
+            MockLlmTurnsStep(turns=[{"call": "tool", "result": "res"}]),
+            CeoActionStep(input="YES"),
         ],
         checks=ScenarioChecks(includes=["CEO ACTION: YES"])
     )

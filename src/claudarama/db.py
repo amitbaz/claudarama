@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import subprocess
 from pathlib import Path
 
 
@@ -41,10 +42,42 @@ CREATE TABLE IF NOT EXISTS briefs (
 """
 
 
+def get_project_name() -> str:
+    """Resolve project name from git or current directory."""
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            common_git_dir = Path(res.stdout.strip())
+            # For common dir .git inside project root, parent is project dir
+            if common_git_dir.name == ".git":
+                return common_git_dir.parent.name
+    except Exception:
+        pass
+
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            return Path(res.stdout.strip()).name
+    except Exception:
+        pass
+
+    return Path.cwd().name
+
+
 def get_office_db_path(project_name: str | None = None) -> Path:
-    """Return the office.db path for the given project, defaulting to current working dir name."""
+    """Return the office.db path for the given project, defaulting to current project name."""
     if not project_name:
-        project_name = Path.cwd().name
+        project_name = get_project_name()
     home = Path(os.environ.get("HOME", Path.home()))
     return home / ".claudarama" / project_name / "office.db"
 

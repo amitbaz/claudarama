@@ -32,6 +32,5 @@ def run_daemon(
 ) -> None:
     """Initialize DB and run the FastMCP daemon."""
     db_path = get_office_db_path(project_name)
-    init_db(db_path)
     server = create_mcp_server(db_path=db_path, host=host, port=port)
     server.run(transport=transport)

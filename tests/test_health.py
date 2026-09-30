@@ -35,7 +35,7 @@ def _setup(tmp_path: Path, org_yaml: str = "", model: str | None = None):
         (pack / "org.yaml").write_text(org_yaml)
     out = tmp_path / "out"
     out.mkdir()
-    return db, pack, out, queue_turn(db, "p1", model=model)
+    return db, pack, out, queue_turn(db, "p1", model=model, kind="ritual")
 
 
 def _rows(db, sql):
@@ -106,7 +106,7 @@ def test_stall_escalates_to_new_branch_and_queues_higher_model(tmp_path):
 
 def test_escalated_turn_that_stalls_does_not_escalate_again(tmp_path):
     db, pack, out, _ = _setup(tmp_path, "escalate_stuck_turns: true\nescalation_model: opus\n")
-    tid = queue_turn(db, "p1", model="opus", branch="escalated/x")
+    tid = queue_turn(db, "p1", model="opus", branch="escalated/x", kind="ritual")
     mock = _script(tmp_path, "exec sleep 30")
     Supervisor(db, pack, out, claude_binary=str(mock), stall_timeout=0.5).run_one_turn(tid)
     assert len(_rows(db, "SELECT id FROM turns")) == 2  # original _ + this one, no third
@@ -114,7 +114,7 @@ def test_escalated_turn_that_stalls_does_not_escalate_again(tmp_path):
 
 def test_model_flag_passed_to_claude(tmp_path):
     db, pack, out, _ = _setup(tmp_path)
-    tid = queue_turn(db, "p1", model="opus")
+    tid = queue_turn(db, "p1", model="opus", kind="ritual")
     marker = tmp_path / "args"
     mock = _script(tmp_path, f'echo "$@" > {marker}')
     Supervisor(db, pack, out, claude_binary=str(mock)).run_one_turn(tid)

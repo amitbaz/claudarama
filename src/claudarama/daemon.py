@@ -7,9 +7,11 @@ from mcp.server.fastmcp import Context, FastMCP
 from claudarama.db import (
     Identity,
     get_office_db_path,
+    grant_mandate,
     init_db,
     mark_turn_done,
     queue_turn,
+    register_ticket,
     resolve_token,
     store_message,
     thread_key,
@@ -113,6 +115,20 @@ def create_mcp_server(db_path: Path | None = None, host: str = "127.0.0.1", port
         """Send a message and end your turn. The sender is taken from your token."""
         identity = authenticate(db_path, _token_of(ctx))
         return await send(identity, receiver_id, msg_type, body, ticket, topic)
+
+    @server.tool()
+    def grant(mandate: str, ctx: Context) -> dict:
+        """Grant a mandate. Owner token only."""
+        authenticate(db_path, _token_of(ctx), owner_only=True)
+        grant_mandate(db_path, mandate)
+        return {"ok": True, "mandate": mandate}
+
+    @server.tool()
+    def ticket_ready(ticket: str, mandate: str, ctx: Context, hard: bool = False) -> dict:
+        """Register a ticket under a granted mandate; refused if the mandate is not granted."""
+        authenticate(db_path, _token_of(ctx))
+        register_ticket(db_path, ticket, mandate, hard)
+        return {"ok": True, "ticket": ticket, "mandate": mandate, "hard": hard}
 
     @server.tool()
     def whoami(ctx: Context) -> dict:

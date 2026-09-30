@@ -201,7 +201,7 @@ class TestSupervisor:
         if mock_script is None:
             mock_script = _make_mock_claude(tmp_path)
 
-        turn_id = queue_turn(db_path, person_id="p1")
+        turn_id = queue_turn(db_path, person_id="p1", kind="ritual")
 
         return db_path, pack, output_dir, mock_script, turn_id
 

@@ -19,10 +19,12 @@ from claudarama.db import (
     get_queued_turns,
     get_thread,
     get_turn,
+    grant_refusal,
     mark_turn_done,
     mark_turn_failed,
     mark_turn_running,
     queue_turn,
+    refuse_turn,
     save_brief,
 )
 
@@ -167,6 +169,11 @@ class Supervisor:
         """Execute a single turn: build brief, spawn process, handle crash/stall."""
         turn = get_turn(self.db_path, turn_id)
         if turn is None:
+            return
+
+        reason = grant_refusal(self.db_path, turn)
+        if reason:
+            refuse_turn(self.db_path, turn_id, reason)
             return
 
         settings = load_org_settings(self.pack_dir)

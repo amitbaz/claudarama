@@ -283,3 +283,55 @@ def test_runner_cli_no_args(capsys):
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "Usage:" in captured.err
+
+
+def test_runner_cli_directory_input(tmp_path: Path, capsys):
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    s1 = scenarios_dir / "s1.json"
+    s1.write_text(json.dumps({"name": "s1", "role": "pm", "prompt": "p", "judge": "j"}))
+    s2 = scenarios_dir / "s2.json"
+    s2.write_text(json.dumps({"name": "s2", "role": "cpo", "prompt": "p2", "checks": {"includes": ["ok"]}}))
+
+    exit_code = run_checker_cli([str(scenarios_dir)])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "Passed static validation" in captured.out
+    assert "PASSED:" in captured.out
+
+
+def test_runner_cli_directory_with_failures(tmp_path: Path, capsys):
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    s1 = scenarios_dir / "s1.json"
+    s1.write_text(json.dumps({"name": "s1", "role": "pm", "prompt": "p", "judge": "j"}))
+    s2 = scenarios_dir / "broken.json"
+    s2.write_text('{"name": "broken", ')
+
+    exit_code = run_checker_cli([str(scenarios_dir)])
+    assert exit_code != 0
+    captured = capsys.readouterr()
+    assert "Failed static validation" in captured.err
+
+
+def test_runner_cli_empty_directory(tmp_path: Path, capsys):
+    scenarios_dir = tmp_path / "empty_scenarios"
+    scenarios_dir.mkdir()
+
+    exit_code = run_checker_cli([str(scenarios_dir)])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "No scenario files found" in captured.err
+
+
+def test_validate_scenario_paths_with_directory(tmp_path: Path):
+    scenarios_dir = tmp_path / "scenarios"
+    scenarios_dir.mkdir()
+    s1 = scenarios_dir / "s1.json"
+    s1.write_text(json.dumps({"name": "s1", "role": "pm", "prompt": "p", "judge": "j"}))
+
+    all_valid, results = validate_scenario_paths([scenarios_dir])
+    assert all_valid is True
+    assert str(s1) in results
+    assert results[str(s1)] == []
+

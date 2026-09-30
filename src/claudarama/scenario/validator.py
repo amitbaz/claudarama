@@ -194,7 +194,7 @@ def load_scenario(file_path: str | Path) -> Scenario:
 
 
 def validate_scenario_paths(paths: list[str | Path]) -> tuple[bool, dict[str, list[str]]]:
-    """Validate multiple scenario files.
+    """Validate multiple scenario files or directories containing scenario files.
 
     Returns:
         (all_valid, results_dict) where results_dict maps file path string to list of error strings.
@@ -203,10 +203,24 @@ def validate_scenario_paths(paths: list[str | Path]) -> tuple[bool, dict[str, li
     results: dict[str, list[str]] = {}
 
     for path in paths:
-        path_str = str(path)
-        res = validate_scenario_file(path)
-        results[path_str] = res.errors
-        if not res.valid:
-            all_valid = False
+        p = Path(path)
+        if p.is_dir():
+            json_files = sorted(p.glob("**/*.json"))
+            if not json_files:
+                results[str(path)] = [f"No scenario files found in directory: {path}"]
+                all_valid = False
+            for jf in json_files:
+                path_str = str(jf)
+                res = validate_scenario_file(jf)
+                results[path_str] = res.errors
+                if not res.valid:
+                    all_valid = False
+        else:
+            path_str = str(path)
+            res = validate_scenario_file(p)
+            results[path_str] = res.errors
+            if not res.valid:
+                all_valid = False
 
     return all_valid, results
+

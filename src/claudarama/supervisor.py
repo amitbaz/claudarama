@@ -15,6 +15,7 @@ from pathlib import Path
 from claudarama.brief import build_brief
 from claudarama.db import (
     get_queued_turns,
+    get_thread,
     get_turn,
     mark_turn_done,
     mark_turn_failed,
@@ -56,7 +57,17 @@ def load_org_settings(pack_dir: Path) -> OrgSettings:
 
 
 class Supervisor:
-    """Supervisor loop that executes headless turns."""
+    """Supervisor loop that executes headless turns.
+
+    For each queued turn it builds a brief from pack files on disk (plus live
+    thread history if this is a reply turn, i.e. ``thread_with`` is set), saves
+    it, spawns ``claude -p`` and streams stdout to a ``.jsonl`` file.
+
+    Sending a message mid-turn is handled by the daemon's ``send`` MCP tool,
+    which marks the turn done and queues the receiver's turn directly.  The
+    supervisor does not manage that lifecycle; it only drives turns that are
+    in the ``queued`` state.
+    """
 
     def __init__(
         self,
@@ -126,7 +137,13 @@ class Supervisor:
             else settings.stall_timeout
         )
 
-        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"])
+        # A reply turn gets the live thread from the messages table.
+        thread = None
+        thread_with = turn.get("thread_with")
+        if thread_with:
+            thread = get_thread(self.db_path, participants=(turn["person_id"], thread_with))
+
+        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread)
         if turn["branch"]:
             brief += f"\n\nWork on git branch `{turn['branch']}`.\n"
         save_brief(self.db_path, turn_id, brief)
@@ -160,6 +177,7 @@ class Supervisor:
                 queue_turn(
                     self.db_path,
                     turn["person_id"],
+                    thread_with=turn["thread_with"],
                     model=settings.escalation_model,
                     branch=branch,
                 )

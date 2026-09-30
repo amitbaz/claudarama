@@ -85,6 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Daemon port (default: 8000)",
     )
 
+    # talk subcommand
+    talk_parser = subparsers.add_parser(
+        "talk",
+        help="Open an interactive session with a named person",
+    )
+    talk_parser.add_argument("name", help="Name of the person to talk to")
+    talk_parser.add_argument("--host", default="127.0.0.1", help="Daemon host (default: 127.0.0.1)")
+    talk_parser.add_argument("--port", type=int, default=8000, help="Daemon port (default: 8000)")
+
     return parser
 
 
@@ -111,6 +120,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from claudarama.session import open_ceo_session
 
         return open_ceo_session(host=args.host, port=args.port)
+
+    if args.command == "talk":
+        from claudarama.session import talk_to_person
+
+        return talk_to_person(args.name, host=args.host, port=args.port)
 
     if args.command == "eval":
         from claudarama.scenario.cli import run_eval_cli

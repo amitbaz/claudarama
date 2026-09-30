@@ -224,3 +224,13 @@ def test_cli_open_invokes_claude_session():
 
 
 
+
+
+def test_cli_talk_invokes_person_session():
+    from unittest.mock import patch
+
+    from claudarama import cli
+
+    with patch("claudarama.session.talk_to_person", return_value=0) as mock_talk:
+        assert cli.main(["talk", "Bender", "--port", "9000"]) == 0
+    mock_talk.assert_called_once_with("Bender", host="127.0.0.1", port=9000)

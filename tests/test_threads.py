@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from claudarama.daemon import make_send_tool
-from claudarama.db import get_turn, init_db, queue_turn
+from claudarama.db import Identity, get_turn, init_db, queue_turn
 from claudarama.supervisor import Supervisor
 
 
@@ -33,8 +33,7 @@ def _send(db_path, sender, receiver, body, **kw) -> dict:
     turn_id = queue_turn(db_path, person_id=sender)
     return asyncio.run(
         make_send_tool(db_path)(
-            sender_turn_id=turn_id,
-            sender_id=sender,
+            identity=Identity("turn", sender, turn_id),
             receiver_id=receiver,
             msg_type="DONE",
             body=body,
@@ -54,8 +53,7 @@ def test_send_refuses_message_with_neither_ticket_nor_topic(tmp_path):
     with pytest.raises(ValueError):
         asyncio.run(
             make_send_tool(db_path)(
-                sender_turn_id=turn_id,
-                sender_id="p1",
+                identity=Identity("turn", "p1", turn_id),
                 receiver_id="p2",
                 msg_type="DONE",
                 body="hi",

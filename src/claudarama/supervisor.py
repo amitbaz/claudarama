@@ -13,7 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claudarama.brief import build_brief
+from claudarama.session import mcp_config
 from claudarama.db import (
+    create_turn_token,
     get_queued_turns,
     get_thread,
     get_turn,
@@ -85,12 +87,16 @@ class Supervisor:
         output_dir: Path,
         claude_binary: str = "claude",
         stall_timeout: float | None = None,
+        host: str = "127.0.0.1",
+        port: int = 8000,
     ) -> None:
         self.db_path = db_path
         self.pack_dir = pack_dir
         self.output_dir = output_dir
         self.claude_binary = claude_binary
         self.stall_timeout_override = stall_timeout
+        self.host = host
+        self.port = port
 
     def _spawn(
         self, launch: TurnLaunch, output_file: Path, stall_timeout: float, mode: str = "w"
@@ -148,7 +154,11 @@ class Supervisor:
         if turn["branch"]:
             brief += f"\n\nWork on git branch `{turn['branch']}`.\n"
 
-        cmd = [self.claude_binary, "-p", brief, "--output-format", "stream-json"]
+        token = create_turn_token(self.db_path, turn["id"])
+        cmd = [
+            self.claude_binary, "-p", brief, "--output-format", "stream-json",
+            "--mcp-config", mcp_config(self.host, self.port, token),
+        ]
         if turn["model"]:
             cmd += ["--model", turn["model"]]
         return TurnLaunch(brief=brief, cmd=cmd)

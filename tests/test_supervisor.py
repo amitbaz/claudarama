@@ -423,3 +423,57 @@ class TestBuildLaunch:
         assert launch.cmd[launch.cmd.index("--allowedTools") + 1] == "Bash,Edit,Read,Glob,Grep,LS,View,Replace,Notebook"
         assert "CLAUDARAMA_OFFICE" in launch.env
 
+
+def _make_mock_claude_with_usage(tmp_path: Path) -> Path:
+    script = tmp_path / "mock_claude_usage"
+    lines = [
+        json.dumps({"type": "message", "message": "hello"}),
+        json.dumps({
+            "type": "result",
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "cacheReadTokens": 10,
+                "cacheWriteTokens": 5,
+                "totalCost": 0.05
+            }
+        })
+    ]
+    body = "\n".join(f"echo '{line}'" for line in lines)
+    script.write_text(f"#!/bin/sh\n{body}\n")
+    script.chmod(0o755)
+    return script
+
+def test_supervisor_records_usage(tmp_path):
+    from claudarama.db import init_db, queue_turn
+    from claudarama.supervisor import Supervisor
+    
+    db_path = tmp_path / "office.db"
+    init_db(db_path)
+    _seed_person(db_path, "p1", "Bender", "assistant")
+    turn_id = queue_turn(db_path, "p1")
+    
+    pack = tmp_path / ".claudarama"
+    pack.mkdir()
+    (pack / "company.md").write_text("# Test\n")
+    (pack / "profiles").mkdir()
+    (pack / "profiles" / "engineer.md").write_text("You are an engineer.\n")
+    
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    
+    script = _make_mock_claude_with_usage(tmp_path)
+    
+    sup = Supervisor(db_path, pack, output_dir, claude_binary=str(script))
+    sup.run_one_turn(turn_id)
+    
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
+    
+    assert row["input_tokens"] == 100
+    assert row["output_tokens"] == 50
+    assert row["cache_read_tokens"] == 10
+    assert row["cache_write_tokens"] == 5
+    assert row["cost"] == 0.05

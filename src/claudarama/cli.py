@@ -94,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
     talk_parser.add_argument("--host", default="127.0.0.1", help="Daemon host (default: 127.0.0.1)")
     talk_parser.add_argument("--port", type=int, default=8000, help="Daemon port (default: 8000)")
 
+    # status subcommand
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show usage totals per person, ticket and ritual",
+    )
+
     return parser
 
 
@@ -135,6 +141,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             against=args.against,
             mock_response=args.mock_response,
         )
+
+    if args.command == "status":
+        from claudarama.status import print_status
+        return print_status()
 
     parser.print_help()
     return 0

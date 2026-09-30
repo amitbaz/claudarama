@@ -44,7 +44,10 @@ def load_org_settings(pack_dir: Path) -> OrgSettings:
         if not sep:
             continue
         if key == "stall_timeout_minutes":
-            settings.stall_timeout = float(value) * 60
+            try:
+                settings.stall_timeout = float(value) * 60
+            except ValueError:
+                pass  # keep default on a malformed value
         elif key == "escalate_stuck_turns":
             settings.escalate = value.lower() == "true"
         elif key == "escalation_model" and value:
@@ -69,9 +72,11 @@ class Supervisor:
         self.claude_binary = claude_binary
         self.stall_timeout_override = stall_timeout
 
-    def _spawn(self, cmd: list[str], output_file: Path, stall_timeout: float) -> str:
+    def _spawn(
+        self, cmd: list[str], output_file: Path, stall_timeout: float, mode: str = "w"
+    ) -> str:
         """Run cmd, streaming stdout to output_file. Returns 'ok', 'crash' or 'stalled'."""
-        with open(output_file, "w", encoding="utf-8") as f:
+        with open(output_file, mode, encoding="utf-8") as f:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True
             )
@@ -82,7 +87,10 @@ class Supervisor:
                 while True:
                     remaining = stall_timeout - (time.monotonic() - last_output)
                     if remaining <= 0:
-                        os.killpg(proc.pid, signal.SIGKILL)
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass  # exited just now; still counts as stalled
                         proc.wait()
                         return "stalled"
                     if not sel.select(timeout=remaining):
@@ -112,7 +120,11 @@ class Supervisor:
             return
 
         settings = load_org_settings(self.pack_dir)
-        stall_timeout = self.stall_timeout_override or settings.stall_timeout
+        stall_timeout = (
+            self.stall_timeout_override
+            if self.stall_timeout_override is not None
+            else settings.stall_timeout
+        )
 
         brief = build_brief(pack_dir=self.pack_dir, role=turn["role"])
         if turn["branch"]:
@@ -128,7 +140,7 @@ class Supervisor:
         try:
             outcome = self._spawn(cmd, output_file, stall_timeout)
             if outcome == "crash":  # one retry, same model
-                outcome = self._spawn(cmd, output_file, stall_timeout)
+                outcome = self._spawn(cmd, output_file, stall_timeout, mode="a")
         except Exception:
             outcome = "crash"
 
@@ -137,7 +149,7 @@ class Supervisor:
             return
 
         mark_turn_failed(self.db_path, turn_id)
-        # ponytail: escalates once; an already-escalated turn just fails (paused for the CEO).
+        # ponytail: escalates once; an already-escalated turn just fails (no pause or notify yet).
         if (
             outcome == "stalled"
             and settings.escalate

@@ -325,6 +325,37 @@ class TestSupervisor:
         assert turns_run == 0
 
 
+    def test_poll_skips_person_with_running_turn_or_session(self, tmp_path):
+        from claudarama.db import queue_turn, start_session, mark_turn_running
+        from claudarama.supervisor import Supervisor
+
+        db_path, pack, output_dir, mock_script, turn_id = self._setup(tmp_path)
+        
+        # p1 has turn_id queued.
+        # queue another turn for p1
+        turn2 = queue_turn(db_path, "p1", kind="work")
+        
+        # Make p1 have a running turn
+        mark_turn_running(db_path, turn_id)
+        
+        sup = Supervisor(
+            db_path=db_path,
+            pack_dir=pack,
+            output_dir=output_dir,
+            claude_binary="echo",
+        )
+        # Should not run turn2 because p1 is running turn_id
+        assert sup.poll() == 0
+        
+        # Now mark it done
+        with _connect(db_path) as conn:
+            conn.execute("UPDATE turns SET status = 'done' WHERE id = ?", (turn_id,))
+            
+        # Make p1 have an open session
+        start_session(db_path, "p1")
+        assert sup.poll() == 0
+
+
 class TestBuildLaunch:
     """Launch seam: everything a turn starts with, inspectable without spawning."""
 
@@ -350,3 +381,4 @@ class TestBuildLaunch:
         assert launch.cmd[7:9] == ["--model", "opus"]
         assert launch.cmd[5] == "--mcp-config"
         assert "CLAUDARAMA_OFFICE" in launch.env
+

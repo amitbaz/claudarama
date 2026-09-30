@@ -218,3 +218,16 @@ Each has a fallback chosen in the sub-project's spec:
 - whether the appended system prompt can be refreshed on every resumed turn;
 - how native deny rules such as `Bash(gh auth switch *)` treat chained commands, and the `--disallowedTools` pattern syntax for MCP tools;
 - the MCP HTTP transport from a plugin's `.mcp.json` to a locally started daemon.
+
+## Open questions (blueprint level)
+
+Not yet decided with the owner. Each shapes several sub-projects, so settle them before writing the plan for sub-project 2 (except where noted). When one is decided, move the answer into the body of this spec and delete it here.
+
+1. **Usage limits and budget.** Headless turns draw on the owner's Claude subscription limits; seven parallel turns may hit the five-hour limit quickly. Decide an office-wide daily or monthly budget and usage ceiling in addition to per-ticket caps, and what the daemon does when a limit is near.
+2. **Conversation lifetime.** Does a person keep one conversation forever (grows without bound, repeated compaction), or start a fresh conversation per ticket or assignment with continuity carried by the record and brief? Leaning: fresh per assignment.
+3. **GitHub identity.** The 2026-09-28 Gili decisions give one GitHub App bot per role type. With named people: does a person commit and comment as themselves, as their role's bot, or as the owner?
+4. **Reaching the CEO.** Design how the office asks for decisions and reports: PushNotification, the evening email, what a "needs you" item looks like, and batching.
+5. **Permission mode for turns.** Keep `--dangerously-skip-permissions` plus deny rules and hooks, or move to an allowlist.
+6. **Several offices at once.** One daemon serves every project. Are the concurrency cap and budget per office, shared across offices, or both?
+7. **Public or private.** Futurama character names are trademarked; fine for private use, a risk if Claudarama is published. Decide before any public release.
+8. **Section 5 approval.** The owner has not yet explicitly approved "Proof", "Migrating Gili" and "Build order".

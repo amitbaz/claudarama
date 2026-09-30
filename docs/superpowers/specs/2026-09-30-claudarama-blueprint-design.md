@@ -80,6 +80,8 @@ Names come from a pool of Futurama characters. The owner may pick a character or
 
 Each person has a craft or seat, a level, a manager and a record in the server: tickets shipped, rework, incidents, 1:1 notes, reviews, lessons.
 
+**GitHub Representation:** For git commits, the GitHub App will spoof the author and committer names to reflect the fictional persona (e.g., `Bender <bender@...>`, enabled by the Create a Commit API). For issue and PR comments, the App cannot impersonate natively; it will post as the App's single bot account (`claudarama[bot]`) but will prefix the comment body with the persona's name (e.g., `**Leela:**`).
+
 ### Levels and careers
 
 | Level | Scope | Autonomy inside the office |
@@ -124,7 +126,7 @@ Rituals run on Sonnet with a small spend cap each; reviews run on Opus.
 
 **Runtime: members are conversations, not processes.** Each person has a stored Claude Code `session_id`. When work arrives, the daemon runs `claude -p --resume <session_id>` in the person's worktree with the person's model, the per-turn settings and a freshly built brief, streams the JSON output into the database, and the process exits. A waiting member runs nothing. At most N turns run at once; N comes from `org.yaml` (for Gili: three engineering turns and seven in total).
 
-**The CEO's session.** The Assistant is the CEO's interactive session, opened with `claudarama open`. It sends work through the server, and a background watcher (`claudarama inbox --wait assistant`) wakes it when mail arrives. `claudarama talk <name>` opens any person's conversation interactively; on exit the person returns to server-driven turns.
+**The CEO's session and Communication.** V1 communication is strictly terminal-first; there is no "evening email" concept. The Assistant is the CEO's interactive session, opened with `claudarama open`. It sends work through the server, and a background watcher (`claudarama inbox --wait assistant`) wakes it when mail arrives. When the CEO runs `claudarama open`, the Assistant greets them and immediately uses Claude's interactive user question tool to present any batched reports and ask for decisions on blocking gates. If the CEO is AFK (not running `claudarama open`) and the office generates information or hits a blocking gate, the local daemon triggers a native macOS push notification. `claudarama talk <name>` opens any person's conversation interactively; on exit the person returns to server-driven turns.
 
 **Jobs and tools.**
 
@@ -225,8 +227,6 @@ Not yet decided with the owner. Each shapes several sub-projects, so settle them
 
 1. **Usage limits and budget.** Headless turns draw on the owner's Claude subscription limits; seven parallel turns may hit the five-hour limit quickly. Decide an office-wide daily or monthly budget and usage ceiling in addition to per-ticket caps, and what the daemon does when a limit is near.
 2. **Conversation lifetime.** Does a person keep one conversation forever (grows without bound, repeated compaction), or start a fresh conversation per ticket or assignment with continuity carried by the record and brief? Leaning: fresh per assignment.
-3. **GitHub identity.** The 2026-09-28 Gili decisions give one GitHub App bot per role type. With named people: does a person commit and comment as themselves, as their role's bot, or as the owner?
-4. **Reaching the CEO.** Design how the office asks for decisions and reports: PushNotification, the evening email, what a "needs you" item looks like, and batching.
 5. **Permission mode for turns.** Keep `--dangerously-skip-permissions` plus deny rules and hooks, or move to an allowlist.
 6. **Several offices at once.** One daemon serves every project. Are the concurrency cap and budget per office, shared across offices, or both?
 7. **Public or private.** Futurama character names are trademarked; fine for private use, a risk if Claudarama is published. Decide before any public release.

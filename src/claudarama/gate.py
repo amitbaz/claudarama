@@ -8,6 +8,7 @@ and is silent when the variable is unset. Gated actions are never on this list (
 import json
 import os
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -15,10 +16,20 @@ OFFICE_ENV = "CLAUDARAMA_OFFICE"
 
 CORE_ALLOW = [
     "Read", "Glob", "Grep", "Edit", "Write", "mcp__claudarama__*",
-    "Bash(git *)", "Bash(gh issue *)", "Bash(gh pr create *)", "Bash(gh pr view *)",
+    *(f"Bash(git {sub} *)" for sub in (
+        "status", "diff", "log", "show", "add", "commit", "branch", "checkout", "switch", "restore",
+        "fetch", "pull", "push", "merge", "rebase", "stash", "worktree", "rev-parse", "ls-files", "mv", "rm",
+    )),
+    "Bash(gh issue *)", "Bash(gh pr create *)", "Bash(gh pr view *)",
     "Bash(gh pr list *)", "Bash(gh pr diff *)", "Bash(gh pr checks *)", "Bash(gh pr comment *)",
     "Bash(ls *)", "Bash(cat *)", "Bash(head *)", "Bash(tail *)", "Bash(wc *)",
     "Bash(grep *)", "Bash(rg *)", "Bash(echo *)", "Bash(pwd)",
+]
+
+# Repository settings and arbitrary command execution through git stay out of headless reach.
+CORE_DENY = [
+    "Bash(git -c *)", "Bash(git config *)", "Bash(git push --force*)", "Bash(git push -f *)",
+    "Bash(git push --delete *)",
 ]
 
 
@@ -49,12 +60,24 @@ def build_allowlist(pack_dir: Path) -> tuple[list[str], list[str]]:
         cmd = line.partition(":")[2].strip().strip("\"'")
         if cmd:
             allow += [f"Bash({cmd})", f"Bash({cmd} *)"]
-    deny = [
+    deny = CORE_DENY + [
         line[1:].strip().strip("\"'")
         for line in _block(_read(pack_dir / "gates.yaml"), "deny_rules")
         if line.startswith("-")
     ]
     return allow, deny
+
+
+def write_turn_settings(pack_dir: Path, path: Path) -> None:
+    """Write the turn's ``--settings`` file: native permissions plus the gate hook, from one allowlist."""
+    allow, deny = build_allowlist(pack_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "permissions": {"allow": allow, "deny": deny},
+        "hooks": {"PreToolUse": [{"matcher": "", "hooks": [
+            {"type": "command", "command": f"{shlex.quote(sys.executable)} -m claudarama.gate"}
+        ]}]},
+    }), encoding="utf-8")
 
 
 # --- matching ---------------------------------------------------------------
@@ -151,6 +174,8 @@ def _parse(s: str, i: int, in_sub: bool) -> tuple[list[str], int]:
         elif c == "|":
             flush()
             i += 2 if s[i + 1:i + 2] in ("|", "&") else 1
+        elif c == ">" and s[i + 1:i + 2] != "&" and not s[i + 1:].lstrip("> ").startswith("/dev/null"):
+            raise ParseError("file redirection")
         elif c == "&" and s[i + 1:i + 2] == "&":
             flush()
             i += 2
@@ -171,18 +196,20 @@ def _parse(s: str, i: int, in_sub: bool) -> tuple[list[str], int]:
 PATH_KEYS = ("file_path", "path", "notebook_path")
 
 
-def _state_dir_access(tool_input: dict) -> bool:
+def _state_dir_access(tool_input: dict, cwd: str) -> bool:
     home = str(Path.home())
-    state = os.path.join(home, ".claudarama")
+    state = os.path.join(home, ".claudarama").lower()
     for key in PATH_KEYS:
         value = tool_input.get(key)
         if isinstance(value, str):
-            full = os.path.abspath(os.path.expanduser(value))
+            full = os.path.abspath(os.path.join(cwd, os.path.expanduser(value))).lower()
             if full == state or full.startswith(state + os.sep):
                 return True
     command = tool_input.get("command")
     if isinstance(command, str):
-        return re.search(rf"(?:~|\$HOME|\$\{{HOME\}}|{re.escape(home)})/\.claudarama(?![\w.-])", command) is not None
+        # ponytail: textual check; `cd ~ && cat .claudarama/x` or exotic expansions slip through (same OS user).
+        flat = re.sub(r"[\\'\"]", "", command).lower()
+        return re.search(rf"(?:~|\$home|\$\{{home\}}|{re.escape(home.lower())})/\.[c*?\[]", flat) is not None
     return False
 
 
@@ -193,7 +220,7 @@ def decide(payload: object, allow: list[str], deny: list[str]) -> tuple[bool, st
     tool, tool_input = payload["tool_name"], payload.get("tool_input")
     if not isinstance(tool_input, dict):
         return False, "cannot parse hook input: no tool_input"
-    if _state_dir_access(tool_input):
+    if _state_dir_access(tool_input, payload.get("cwd") or os.getcwd()):
         return False, "access to ~/.claudarama/ is denied (office state and owner token)"
     parts: list[str | None] = [None]
     if tool == "Bash":

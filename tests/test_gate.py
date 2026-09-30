@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from claudarama.db import get_turn, init_db, queue_turn
-from claudarama.gate import build_allowlist
+from claudarama.gate import CORE_DENY, build_allowlist
 from claudarama.supervisor import Supervisor
 
 
@@ -46,15 +46,15 @@ def _bash(tmp_path, command):
 
 def test_allowlist_merges_core_stack_and_gates(tmp_path):
     allow, deny = build_allowlist(_pack(tmp_path, STACK, GATES))
-    assert "Bash(git *)" in allow
+    assert "Bash(git status *)" in allow
     assert "Bash(pytest -q)" in allow and "Bash(pytest -q *)" in allow
     assert "Bash(make ci)" in allow
-    assert deny == ["Bash(git push --force *)"]
+    assert deny[-1] == "Bash(git push --force *)" and "Bash(git config *)" in deny
 
 
 def test_allowlist_survives_missing_pack_files(tmp_path):
     allow, deny = build_allowlist(tmp_path / "nope")
-    assert "Bash(git *)" in allow and deny == []
+    assert "Bash(git status *)" in allow and deny == CORE_DENY
 
 
 def test_hook_is_inert_without_office_env(tmp_path):
@@ -84,8 +84,11 @@ def test_hook_allows_fully_allowed_commands(tmp_path, command):
     ("echo $(rm x)", "rm x"),
     ("echo `rm x`", "rm x"),
     ('echo "$(rm x)"', "rm x"),
-    ("git push --force origin main", "Bash(git push --force *)"),
-    ("git status && git push --force origin main", "Bash(git push --force *)"),
+    ("git push --force origin main", "Bash(git push --force*)"),
+    ("git status && git push --force origin main", "Bash(git push --force*)"),
+    ("git -c alias.x=!sh x", "Bash(git -c *)"),
+    ("git config alias.x '!sh'", "Bash(git config *)"),
+    ("echo hi > /etc/passwd", "file redirection"),
 ])
 def test_hook_denies_any_disallowed_part_and_names_the_rule(tmp_path, command, rule):
     decision = _bash(tmp_path, command)
@@ -122,6 +125,11 @@ def test_hook_fails_closed_when_settings_unreadable(tmp_path):
     {"tool_name": "Bash", "tool_input": {"command": "cat $HOME/.claudarama/x"}},
     {"tool_name": "Bash", "tool_input": {"command": f"cat {Path.home()}/.claudarama/x"}},
     {"tool_name": "Grep", "tool_input": {"pattern": "t", "path": "~/.claudarama"}},
+    {"tool_name": "Bash", "tool_input": {"command": "cat ~/.claud\'\'arama/x"}},
+    {"tool_name": "Bash", "tool_input": {"command": "cat ~/.c*/x"}},
+    {"tool_name": "Bash", "tool_input": {"command": 'cat "$HOME"/.claudarama/x'}},
+    {"tool_name": "Bash", "tool_input": {"command": "cat ~/.CLAUDARAMA/x"}},
+    {"tool_name": "Read", "cwd": str(Path.home() / "x"), "tool_input": {"file_path": "../.claudarama/office.db"}},
 ])
 def test_hook_denies_access_to_office_state_dir(tmp_path, payload):
     decision = _hook(tmp_path, payload)

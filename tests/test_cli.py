@@ -25,6 +25,8 @@ def assert_help_output(output: str) -> None:
     """Verify standard help text components."""
     assert "usage:" in output.lower() or "claudarama" in output
     assert "init" in output
+    assert "up" in output
+    assert "open" in output
 
 
 def test_cli_no_args():
@@ -198,6 +200,27 @@ def test_cli_eval_scenario_with_judge(tmp_path: Path):
     result = run_cli("eval", str(scenario), "--mock-response", "Status: DONE", cwd=tmp_path)
     assert result.returncode == 0
     assert "[PASS]" in result.stdout
+
+
+def test_cli_up_initializes_db_and_invokes_daemon():
+    from unittest.mock import patch
+    import claudarama.cli as cli
+
+    with patch("claudarama.daemon.run_daemon") as mock_run:
+        ret = cli.main(["up", "--port", "8888"])
+        assert ret == 0
+        mock_run.assert_called_once_with(host="127.0.0.1", port=8888)
+
+
+def test_cli_open_invokes_claude_session():
+    from unittest.mock import patch
+    import claudarama.cli as cli
+
+    with patch("claudarama.session.open_ceo_session", return_value=0) as mock_open:
+        ret = cli.main(["open", "--port", "9000"])
+        assert ret == 0
+        mock_open.assert_called_once_with(host="127.0.0.1", port=9000)
+
 
 
 

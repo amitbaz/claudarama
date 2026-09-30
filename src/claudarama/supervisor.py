@@ -95,7 +95,7 @@ class Supervisor:
     def _spawn(
         self, launch: TurnLaunch, output_file: Path, stall_timeout: float, mode: str = "w"
     ) -> str:
-        """Run launch, streaming stdout to output_file. Returns 'ok', 'crash' or 'stalled'."""
+        """Run the launch command, streaming stdout to output_file. Returns 'ok', 'crash' or 'stalled'."""
         with open(output_file, mode, encoding="utf-8") as f:
             proc = subprocess.Popen(
                 launch.cmd,

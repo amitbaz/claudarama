@@ -323,3 +323,30 @@ class TestSupervisor:
         )
         turns_run = sup.poll()
         assert turns_run == 0
+
+
+class TestBuildLaunch:
+    """Launch seam: everything a turn starts with, inspectable without spawning."""
+
+    def test_build_launch_assembles_brief_command_and_env(self, tmp_path):
+        from claudarama.db import get_turn, queue_turn
+        from claudarama.supervisor import Supervisor
+
+        db_path = tmp_path / "office.db"
+        init_db(db_path)
+        _seed_person(db_path, "p1", role="fullstack-engineer")
+        pack = tmp_path / ".claudarama"
+        (pack / "profiles").mkdir(parents=True)
+        (pack / "company.md").write_text("# Test Co\n")
+        output_dir = tmp_path / "output"
+        turn_id = queue_turn(db_path, person_id="p1", model="opus", branch="feat/x")
+        sup = Supervisor(db_path, pack, output_dir, claude_binary="claude")
+
+        launch = sup.build_launch(get_turn(db_path, turn_id))
+
+        assert "Test Co" in launch.brief
+        assert "feat/x" in launch.brief
+        assert launch.cmd == [
+            "claude", "-p", launch.brief, "--output-format", "stream-json", "--model", "opus",
+        ]
+        assert launch.env is None  # inherit; later gates tickets fill this in

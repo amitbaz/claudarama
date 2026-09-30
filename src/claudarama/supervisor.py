@@ -26,6 +26,15 @@ from claudarama.db import (
 
 
 @dataclass
+class TurnLaunch:
+    """Everything a turn is started with. Built by ``Supervisor.build_launch``."""
+
+    brief: str
+    cmd: list[str]
+    env: dict[str, str] | None = None  # None = inherit the supervisor's environment
+
+
+@dataclass
 class OrgSettings:
     stall_timeout: float = 20 * 60
     escalate: bool = False
@@ -84,12 +93,16 @@ class Supervisor:
         self.stall_timeout_override = stall_timeout
 
     def _spawn(
-        self, cmd: list[str], output_file: Path, stall_timeout: float, mode: str = "w"
+        self, launch: TurnLaunch, output_file: Path, stall_timeout: float, mode: str = "w"
     ) -> str:
-        """Run cmd, streaming stdout to output_file. Returns 'ok', 'crash' or 'stalled'."""
+        """Run the launch command, streaming stdout to output_file. Returns 'ok', 'crash' or 'stalled'."""
         with open(output_file, mode, encoding="utf-8") as f:
             proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True
+                launch.cmd,
+                env=launch.env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
             )
             sel = selectors.DefaultSelector()
             sel.register(proc.stdout, selectors.EVENT_READ)
@@ -124,6 +137,23 @@ class Supervisor:
         )
         return res.returncode == 0
 
+    def build_launch(self, turn: dict) -> TurnLaunch:
+        """Assemble the brief, ``claude`` command and environment for a turn. Spawns nothing."""
+        # A reply turn gets the live thread from the messages table.
+        thread = None
+        thread_with = turn.get("thread_with")
+        if thread_with:
+            thread = get_thread(self.db_path, participants=(turn["person_id"], thread_with))
+
+        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread)
+        if turn["branch"]:
+            brief += f"\n\nWork on git branch `{turn['branch']}`.\n"
+
+        cmd = [self.claude_binary, "-p", brief, "--output-format", "stream-json"]
+        if turn["model"]:
+            cmd += ["--model", turn["model"]]
+        return TurnLaunch(brief=brief, cmd=cmd)
+
     def run_one_turn(self, turn_id: str) -> None:
         """Execute a single turn: build brief, spawn process, handle crash/stall."""
         turn = get_turn(self.db_path, turn_id)
@@ -137,27 +167,15 @@ class Supervisor:
             else settings.stall_timeout
         )
 
-        # A reply turn gets the live thread from the messages table.
-        thread = None
-        thread_with = turn.get("thread_with")
-        if thread_with:
-            thread = get_thread(self.db_path, participants=(turn["person_id"], thread_with))
-
-        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread)
-        if turn["branch"]:
-            brief += f"\n\nWork on git branch `{turn['branch']}`.\n"
-        save_brief(self.db_path, turn_id, brief)
+        launch = self.build_launch(turn)
+        save_brief(self.db_path, turn_id, launch.brief)
         mark_turn_running(self.db_path, turn_id)
-
-        cmd = [self.claude_binary, "-p", brief, "--output-format", "stream-json"]
-        if turn["model"]:
-            cmd += ["--model", turn["model"]]
         output_file = self.output_dir / f"{turn_id}.jsonl"
 
         try:
-            outcome = self._spawn(cmd, output_file, stall_timeout)
+            outcome = self._spawn(launch, output_file, stall_timeout)
             if outcome == "crash":  # one retry, same model
-                outcome = self._spawn(cmd, output_file, stall_timeout, mode="a")
+                outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
         except Exception:
             outcome = "crash"
 

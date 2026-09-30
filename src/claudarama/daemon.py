@@ -139,10 +139,9 @@ def create_mcp_server(
         if len(note) > 500:
             raise ValueError("working note over 500 characters")
         identity = authenticate(db_path, _token_of(ctx))
-        if not identity.person_id:
-            raise ValueError("owner cannot pin")
+        person_id = identity.person_id or "ceo"
         from claudarama.db import set_working_note
-        set_working_note(db_path, identity.person_id, ticket, note)
+        set_working_note(db_path, person_id, ticket, note)
         return {"ok": True}
 
     @server.tool()

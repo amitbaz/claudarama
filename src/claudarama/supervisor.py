@@ -292,8 +292,7 @@ class Supervisor:
         if ticket:
             from claudarama.db import get_working_note, is_ticket_hard
             working_note = get_working_note(self.db_path, turn["person_id"], ticket)
-            if not turn["model"]:
-                turn["model"] = "opus" if is_ticket_hard(self.db_path, ticket) else "sonnet"
+            turn["model"] = "opus" if is_ticket_hard(self.db_path, ticket) else "sonnet"
 
         brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread, ticket=ticket, working_note=working_note)
         if turn["branch"]:

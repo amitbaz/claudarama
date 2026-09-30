@@ -477,3 +477,30 @@ def test_supervisor_records_usage(tmp_path):
     assert row["cache_read_tokens"] == 10
     assert row["cache_write_tokens"] == 5
     assert row["cost"] == 0.05
+
+    def test_build_launch_adds_ticket_note_and_enforces_model(self, tmp_path):
+        from claudarama.db import get_turn, queue_turn, register_ticket, grant_mandate, set_working_note
+        from claudarama.supervisor import Supervisor
+
+        db_path = tmp_path / "office.db"
+        init_db(db_path)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Alice', 'dev')")
+
+        grant_mandate(db_path, "m1")
+        register_ticket(db_path, "123", "m1", hard=True)
+        set_working_note(db_path, "p1", "123", "Important note!")
+
+        turn_id = queue_turn(db_path, "p1", thread="ticket:123", model="sonnet")  # Should be overridden to opus
+        turn = get_turn(db_path, turn_id)
+
+        pack_dir = tmp_path / "pack"
+        pack_dir.mkdir()
+        
+        sup = Supervisor(db_path=db_path, pack_dir=pack_dir, output_dir=tmp_path)
+        launch = sup.build_launch(turn)
+
+        assert "Working on ticket: 123" in launch.brief
+        assert "Important note!" in launch.brief
+        assert "--model" in launch.cmd
+        assert launch.cmd[launch.cmd.index("--model") + 1] == "opus"

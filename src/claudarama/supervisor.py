@@ -69,7 +69,7 @@ class Supervisor:
     """Supervisor loop that executes headless turns.
 
     For each queued turn it builds a brief from pack files on disk (plus live
-    thread history if this is a reply turn, i.e. ``thread_with`` is set), saves
+    thread history if this is a reply turn, i.e. ``thread`` is set), saves
     it, spawns ``claude -p`` and streams stdout to a ``.jsonl`` file.
 
     Sending a message mid-turn is handled by the daemon's ``send`` MCP tool,
@@ -141,9 +141,8 @@ class Supervisor:
         """Assemble the brief, ``claude`` command and environment for a turn. Spawns nothing."""
         # A reply turn gets the live thread from the messages table.
         thread = None
-        thread_with = turn.get("thread_with")
-        if thread_with:
-            thread = get_thread(self.db_path, participants=(turn["person_id"], thread_with))
+        if turn.get("thread"):
+            thread = get_thread(self.db_path, turn["thread"])
 
         brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread)
         if turn["branch"]:
@@ -195,7 +194,7 @@ class Supervisor:
                 queue_turn(
                     self.db_path,
                     turn["person_id"],
-                    thread_with=turn["thread_with"],
+                    thread=turn["thread"],
                     model=settings.escalation_model,
                     branch=branch,
                 )

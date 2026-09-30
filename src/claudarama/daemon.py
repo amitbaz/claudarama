@@ -9,6 +9,7 @@ from claudarama.db import (
     mark_turn_done,
     queue_turn,
     store_message,
+    thread_key,
 )
 
 
@@ -26,17 +27,22 @@ def make_send_tool(db_path: Path) -> Callable:
         msg_type: str,
         body: str,
         ticket: str | None = None,
+        topic: str | None = None,
     ) -> dict:
         """Send a message from sender to receiver and end the sender's turn.
+
+        The message belongs to the thread of its *ticket*, or of its *topic*
+        when there is no ticket; one of the two is required.
 
         Steps:
         1. Stores the message in the DB.
         2. Marks the sender's active turn as done (clean end).
-        3. Queues a fresh turn for the receiver with a ``thread_with`` pointer
-           so the supervisor will inject the live thread into its brief.
+        3. Queues a fresh turn for the receiver with a ``thread`` pointer
+           so the supervisor will inject only that thread into its brief.
 
         Returns ``{"ok": True, "new_turn_id": "<uuid>"}`` on success.
         """
+        thread = thread_key(ticket, topic)  # refuse before touching the DB
         store_message(
             db_path,
             sender=sender_id,
@@ -44,9 +50,10 @@ def make_send_tool(db_path: Path) -> Callable:
             msg_type=msg_type,
             body=body,
             ticket=ticket,
+            topic=topic,
         )
         mark_turn_done(db_path, sender_turn_id)
-        new_turn_id = queue_turn(db_path, person_id=receiver_id, thread_with=sender_id)
+        new_turn_id = queue_turn(db_path, person_id=receiver_id, thread=thread)
         return {"ok": True, "new_turn_id": new_turn_id}
 
     return send

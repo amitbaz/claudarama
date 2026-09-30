@@ -18,7 +18,7 @@ DB mutates correctly." We test this at the tool-function level (via
 make_send_tool) which exercises the same DB mutations. The send tool:
 - stores the message,
 - marks the sender's active turn done (clean end),
-- queues a fresh turn for the receiver with a thread_with pointer so the
+- queues a fresh turn for the receiver with a thread pointer so the
   supervisor injects the live thread into the brief.
 """
 import asyncio
@@ -83,6 +83,7 @@ class TestStoreAndRetrieveMessages:
             receiver="leela",
             msg_type="START",
             body="Hey, got a ticket for you",
+            topic="onboarding",
         )
         assert msg_id  # non-empty
 
@@ -124,21 +125,25 @@ class TestStoreAndRetrieveMessages:
         db_path = tmp_path / "office.db"
         init_db(db_path)
 
-        store_message(db_path, sender="a", receiver="b", msg_type="START", body="first")
-        store_message(db_path, sender="b", receiver="a", msg_type="DONE", body="second")
+        store_message(
+            db_path, sender="a", receiver="b", msg_type="START", body="first", ticket="T-1"
+        )
+        store_message(
+            db_path, sender="b", receiver="a", msg_type="DONE", body="second", ticket="T-1"
+        )
 
-        thread = get_thread(db_path, participants=("a", "b"))
+        thread = get_thread(db_path, "ticket:T-1")
         assert len(thread) == 2
         assert thread[0]["body"] == "first"
         assert thread[1]["body"] == "second"
 
-    def test_get_thread_is_empty_for_unknown_participants(self, tmp_path):
+    def test_get_thread_is_empty_for_unknown_thread(self, tmp_path):
         from claudarama.db import get_thread
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
 
-        thread = get_thread(db_path, participants=("nobody", "also-nobody"))
+        thread = get_thread(db_path, "ticket:nobody")
         assert thread == []
 
 
@@ -225,6 +230,7 @@ class TestSendMCPTool:
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Task complete",
+                ticket="T-1",
             )
         )
 
@@ -252,6 +258,7 @@ class TestSendMCPTool:
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Task complete",
+                ticket="T-1",
             )
         )
 
@@ -277,17 +284,18 @@ class TestSendMCPTool:
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Task complete",
+                ticket="T-1",
             )
         )
 
         with _connect(db_path) as conn:
             row = conn.execute(
-                "SELECT status, thread_with FROM turns WHERE id = ?",
+                "SELECT status, thread FROM turns WHERE id = ?",
                 (result["new_turn_id"],),
             ).fetchone()
 
         assert row["status"] == "queued"
-        assert row["thread_with"] == "p1"
+        assert row["thread"] == "ticket:T-1"
 
     def test_send_tool_receiver_brief_contains_thread(self, tmp_path):
         """Receiver's new turn is a reply turn: brief will contain thread history."""
@@ -306,11 +314,12 @@ class TestSendMCPTool:
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Here is the completed work",
+                ticket="T-1",
             )
         )
 
-        # The supervisor will use thread_with to fetch the live thread
-        thread = get_thread(db_path, participants=("p2", "p1"))
+        # The supervisor will use the thread key to fetch the live thread
+        thread = get_thread(db_path, "ticket:T-1")
         assert len(thread) == 1
         assert thread[0]["body"] == "Here is the completed work"
 

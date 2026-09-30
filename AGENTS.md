@@ -1,6 +1,6 @@
 # Claudarama
 
-Claudarama is a Claude Code plugin that runs an AI startup for a software project: the owner is the CEO, every other seat is a named AI team member. A project adds a `.claudarama/` pack to become `<project>-office`; the first is `gili-office` for gili.careers.
+Claudarama is a Claude Code plugin that runs an AI startup for a software project: the owner is the CEO, every other seat is a named AI team member. A project adds a `.claudarama/` pack to become `<project>-office`. The core is tied to no single project.
 
 ## Start here
 

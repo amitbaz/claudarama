@@ -36,3 +36,4 @@ ENV/
 .ruff_cache/
 .coverage
 htmlcov/
+uv.lock

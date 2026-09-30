@@ -316,7 +316,7 @@ class Supervisor:
             if usage:
                 if "cost" not in usage and "cost" in data:
                     usage["cost"] = data["cost"]
-                save_turn_usage(self.db_path, turn_id, usage)
+                save_turn_usage(self.db_path, turn_id, usage, data.get("model"))
         except json.JSONDecodeError:
             pass
 
@@ -359,12 +359,13 @@ class Supervisor:
             except Exception:
                 outcome = "crash"
 
+            self._record_usage(turn_id, output_file)
+
             if outcome == "crash" and _check_limit():
                 outcome = "limit"
 
             if outcome == "ok":
                 mark_turn_done(self.db_path, turn_id)
-                self._record_usage(turn_id, output_file)
                 return
 
             if outcome == "limit":

@@ -261,17 +261,18 @@ def refuse_turn(db_path: Path, turn_id: str, reason: str) -> None:
         conn.execute("UPDATE turns SET refusal = ? WHERE id = ?", (reason, turn_id))
 
 
-def save_turn_usage(db_path: Path, turn_id: str, usage: dict) -> None:
+def save_turn_usage(db_path: Path, turn_id: str, usage: dict, model: str | None = None) -> None:
     """Save the usage and cost from a turn's result line."""
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "UPDATE turns SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, cost = ? WHERE id = ?",
+            "UPDATE turns SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, cost = ?, model = coalesce(?, model) WHERE id = ?",
             (
                 usage.get("input_tokens") or usage.get("inputTokens") or 0,
                 usage.get("output_tokens") or usage.get("outputTokens") or 0,
                 usage.get("cache_read_tokens") or usage.get("cacheReadTokens") or 0,
                 usage.get("cache_write_tokens") or usage.get("cacheWriteTokens") or 0,
                 usage.get("cost") or usage.get("totalCost") or usage.get("total_cost") or 0.0,
+                model,
                 turn_id
             ),
         )

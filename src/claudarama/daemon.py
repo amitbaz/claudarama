@@ -1,8 +1,12 @@
+import threading
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable
 
 from mcp.server.fastmcp import Context, FastMCP
+
+from claudarama.mirror import Gh, run_gh, sync
 
 from claudarama.db import (
     Identity,
@@ -82,8 +86,10 @@ def make_send_tool(db_path: Path) -> Callable:
     return send
 
 
-def create_mcp_server(db_path: Path | None = None, host: str = "127.0.0.1", port: int = 8000) -> FastMCP:
-    """Create and configure the Claudarama FastMCP server."""
+def create_mcp_server(
+    db_path: Path | None = None, host: str = "127.0.0.1", port: int = 8000, gh: Gh | None = None
+) -> FastMCP:
+    """Create and configure the Claudarama FastMCP server. With *gh*, grants and tickets mirror to GitHub."""
     if db_path is None:
         db_path = get_office_db_path()
     init_db(db_path)
@@ -121,6 +127,8 @@ def create_mcp_server(db_path: Path | None = None, host: str = "127.0.0.1", port
         """Grant a mandate. Owner token only."""
         authenticate(db_path, _token_of(ctx), owner_only=True)
         grant_mandate(db_path, mandate)
+        if gh:
+            sync(db_path, gh)
         return {"ok": True, "mandate": mandate}
 
     @server.tool()
@@ -128,6 +136,8 @@ def create_mcp_server(db_path: Path | None = None, host: str = "127.0.0.1", port
         """Register a ticket under a granted mandate; refused if the mandate is not granted."""
         authenticate(db_path, _token_of(ctx))
         register_ticket(db_path, ticket, mandate, hard)
+        if gh:
+            sync(db_path, gh)
         return {"ok": True, "ticket": ticket, "mandate": mandate, "hard": hard}
 
     @server.tool()
@@ -146,5 +156,12 @@ def run_daemon(
 ) -> None:
     """Initialize DB and run the FastMCP daemon."""
     db_path = get_office_db_path(project_name)
-    server = create_mcp_server(db_path=db_path, host=host, port=port)
+    server = create_mcp_server(db_path=db_path, host=host, port=port, gh=run_gh)
+
+    def reconcile() -> None:  # catches hand-moved issues
+        while True:
+            time.sleep(60)
+            sync(db_path, run_gh)
+
+    threading.Thread(target=reconcile, daemon=True).start()
     server.run(transport=transport)

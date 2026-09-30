@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS turns (
     id TEXT PRIMARY KEY,
     person_id TEXT NOT NULL,
     status TEXT NOT NULL,
+    thread_with TEXT,
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ended_at TIMESTAMP,
     FOREIGN KEY(person_id) REFERENCES people(id)
@@ -89,15 +90,20 @@ def init_db(db_path: Path) -> None:
         conn.executescript(SCHEMA_SQL)
 
 
-def queue_turn(db_path: Path, person_id: str) -> str:
-    """Create a new turn with status 'queued'. Returns the turn ID."""
+def queue_turn(db_path: Path, person_id: str, thread_with: str | None = None) -> str:
+    """Create a new turn with status 'queued'. Returns the turn ID.
+
+    *thread_with* is the person_id of the other participant in the active
+    message thread. When set, the supervisor fetches the live thread from the
+    ``messages`` table at run-time rather than duplicating its content here.
+    """
     import uuid
 
     turn_id = str(uuid.uuid4())
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO turns (id, person_id, status) VALUES (?, ?, 'queued')",
-            (turn_id, person_id),
+            "INSERT INTO turns (id, person_id, status, thread_with) VALUES (?, ?, 'queued', ?)",
+            (turn_id, person_id, thread_with),
         )
     return turn_id
 
@@ -115,11 +121,16 @@ def get_queued_turns(db_path: Path) -> list[dict]:
 
 
 def get_turn(db_path: Path, turn_id: str) -> dict | None:
-    """Return a turn row as a dict, or None if not found."""
+    """Return a turn row as a dict, or None if not found.
+
+    The dict includes a ``thread_with`` key (the person_id of the other
+    participant in the active message thread, or None). The supervisor uses
+    this to call ``get_thread`` and inject the live thread into the brief.
+    """
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT t.id, t.person_id, t.status, p.role "
+            "SELECT t.id, t.person_id, t.status, t.thread_with, p.role "
             "FROM turns t JOIN people p ON t.person_id = p.id "
             "WHERE t.id = ?",
             (turn_id,),
@@ -165,4 +176,44 @@ def save_brief(db_path: Path, turn_id: str, content: str) -> None:
             "INSERT OR REPLACE INTO briefs (turn_id, content) VALUES (?, ?)",
             (turn_id, content),
         )
+
+
+def store_message(
+    db_path: Path,
+    sender: str,
+    receiver: str,
+    msg_type: str,
+    body: str,
+    ticket: str | None = None,
+) -> str:
+    """Persist a message to the DB. Returns the new message ID."""
+    import uuid
+
+    msg_id = str(uuid.uuid4())
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO messages (id, sender, receiver, msg_type, ticket, body) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (msg_id, sender, receiver, msg_type, ticket, body),
+        )
+    return msg_id
+
+
+def get_thread(db_path: Path, participants: tuple[str, str]) -> list[dict]:
+    """Return all messages between two participants, oldest first.
+
+    A message belongs to the thread if sender and receiver are the two
+    participants (in either direction).
+    """
+    a, b = participants
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, sender, receiver, msg_type, ticket, body, created_at "
+            "FROM messages "
+            "WHERE (sender = ? AND receiver = ?) OR (sender = ? AND receiver = ?) "
+            "ORDER BY created_at ASC",
+            (a, b, b, a),
+        ).fetchall()
+    return [dict(r) for r in rows]
 

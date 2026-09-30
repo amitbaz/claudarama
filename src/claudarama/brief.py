@@ -2,11 +2,18 @@
 from pathlib import Path
 
 
-def build_brief(pack_dir: Path, role: str) -> str:
+def build_brief(
+    pack_dir: Path,
+    role: str,
+    thread: list[dict] | None = None,
+) -> str:
     """Build a brief from the pack's company.md and the role's profile file.
 
     Reads directly from disk so the latest merged changes are always reflected
     (spec requirement: no caching staleness).
+
+    If *thread* is provided it is appended as a "## Message Thread" section so
+    the receiver's fresh turn has full conversation context.
     """
     sections: list[str] = []
 
@@ -19,5 +26,16 @@ def build_brief(pack_dir: Path, role: str) -> str:
     profile_path = pack_dir / "profiles" / f"{role}.md"
     if profile_path.is_file():
         sections.append(profile_path.read_text(encoding="utf-8").strip())
+
+    # Message thread history (injected when replying to a message)
+    if thread:
+        lines = ["## Message Thread"]
+        for msg in thread:
+            sender = msg.get("sender", "?")
+            receiver = msg.get("receiver", "?")
+            msg_type = msg.get("msg_type", "")
+            body = msg.get("body", "")
+            lines.append(f"**{sender} → {receiver}** [{msg_type}]: {body}")
+        sections.append("\n".join(lines))
 
     return "\n\n---\n\n".join(sections) if sections else ""

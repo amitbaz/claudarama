@@ -34,7 +34,7 @@ Terms are defined in [`GLOSSARY.md`](../../../GLOSSARY.md), the single source fo
 |---|---|
 | `company.md` | The charter and current company goal, or a pointer to the project's own charter (gili.careers already has `docs/company.md`) |
 | `org.yaml` | Departments open now, the milestone that unlocks each future department, the concurrency cap |
-| `gates.yaml` | Owner-only actions, extra deny rules, spend caps, key access routes |
+| `gates.yaml` | Owner-only actions, extra deny rules, key access routes |
 | `stack.yaml` | Commands the office runs: tests, local CI, stack lock, migration rules, the main checkout path |
 | `profiles/*.md` | Project overlays appended to the generic crafts |
 | `scenarios/*.json` | Project scenarios, run together with the core scenarios |
@@ -94,7 +94,7 @@ A promotion is proposed by the person's manager in a review built from the serve
 
 The CEO's charter goal breaks into cycle objectives and key results (the cycle length is set by the CEO, for example four weeks), which break into mandates, epics and tickets. Every ticket names the key result it moves, and `ticket-ready` refuses a ticket without one. Key results are measurable today; the server computes them from real data where it can (tickets shipped, eval results, spend).
 
-Each ritual has a trigger, an owner, a document, an effect on later turns, and a spend cap. A ritual that only produces text is not enough; each one changes what the next turns see or may do.
+Each ritual has a trigger, an owner, a document, and an effect on later turns. A ritual that only produces text is not enough; each one changes what the next turns see or may do.
 
 | Ritual | Trigger | Owner | Document | Effect |
 |---|---|---|---|---|
@@ -110,13 +110,13 @@ Members act in the company's favour through three existing mechanisms: anyone ma
 
 Every turn's brief is built from a fixed recipe with a size cap: charter goal, current key results, latest all-hands, lessons in scope, the person's record summary, the role or craft file with pack overlays.
 
-Rituals run on Sonnet with a small spend cap each; reviews run on Opus.
+Rituals run on Sonnet; reviews run on Opus.
 
 ## The office server
 
 **Shape.** One local daemon per machine serves every office, started by `claudarama up` (safe to run twice). Turns and sessions reach it over MCP HTTP on localhost. Storage is one SQLite file per office, `~/.claudarama/<project>/office.db`; search uses SQLite full-text search. The server makes no model calls, computes no embeddings and does no work per conversation, so many members cost no idle CPU. (MemPalace stays off in turns and sessions because per-session saving overloaded the machine.)
 
-**Runtime: members are conversations, not processes.** Turns are fresh per assignment. When work arrives, the daemon starts a new Claude Code conversation (`claude -p`) for the ticket or assignment in the person's worktree with the person's model, the per-turn settings and a freshly built brief. It streams the JSON output into the database, and the process exits. Continuity is carried entirely by the generated brief and the person's stored record. A waiting member runs nothing. At most N turns run at once; N comes from `org.yaml` (for Gili: three engineering turns and seven in total).
+**Runtime: members are conversations, not processes.** Turns are fresh per assignment. When work arrives, the daemon starts a new Claude Code conversation (`claude -p`) for the ticket or assignment in the person's worktree with the person's model, the per-turn settings and a freshly built brief. It streams the JSON output into the database, and the process exits. Continuity is carried entirely by the generated brief and the person's stored record. A waiting member runs nothing. At most N turns run at once per office; N comes from `org.yaml` (for Gili: seven). The daemon also caps turns across all offices on the machine (default ten, first in, first out).
 
 **The CEO's session and Communication.** V1 communication is strictly terminal-first; there is no "evening email" concept. The Assistant is the CEO's interactive session, opened with `claudarama open`. It sends work through the server, and a background watcher (`claudarama inbox --wait assistant`) wakes it when mail arrives. When the CEO runs `claudarama open`, the Assistant greets them and immediately uses Claude's interactive user question tool to present any batched reports and ask for decisions on blocking gates. If the CEO is AFK (not running `claudarama open`) and the office generates information or hits a blocking gate, the local daemon triggers a native macOS push notification. `claudarama talk <name>` opens a session with any person, seeded with the brief a turn would get. That person's queued turns wait until the session ends, so a person never has a turn and a session at the same time.
 
@@ -133,7 +133,7 @@ The daemon also counts office days and marks rituals as due; the Assistant runs 
 
 **Health from facts.** A crash is a nonzero exit. A stuck turn is one with no stream events for 20 minutes (configurable in `org.yaml`). A rate limit is read from the turn's error; the daemon requeues the turn after the reset. A crash gets one retry on the same model; a stuck turn fails by default. Escalation (one retry on a more capable model, on a new branch) is opt-in through `org.yaml`, so no turn spends on a bigger model without the CEO choosing it.
 
-**Gates the server enforces.** No turn without a grant; no turn beyond the concurrency cap; no turn past the ledger's spend cap, checked before each turn. A hook denies direct access to `office.db`. All members run as the owner's OS user, so a determined agent could still forge local state; per-role GitHub App identities and provider-side spend limits (from the 2026-09-28 terminal-first decisions) remain the stronger layer and belong to the Gili pack's gates.
+**Gates the server enforces.** A turn starts only for a ticket under a mandate the CEO approved (its grant), or as a ritual or Assistant turn; ticketless work needs a ticket first. No turn beyond the per-office or per-machine concurrency cap. When a turn hits the subscription usage limit, the office pauses until the reset and the CEO gets a push notification. Spend caps are left to the Budget sub-project. A hook denies direct access to `office.db`. All members run as the owner's OS user, so a determined agent could still forge local state; per-role GitHub App identities and provider-side spend limits (from the 2026-09-28 terminal-first decisions) remain the stronger layer and belong to the Gili pack's gates.
 
 **Failure.** If the daemon is down, no turns run and gate checks fail closed. `claudarama up` restarts it; a launchd keep-alive is added only if needed.
 
@@ -175,8 +175,9 @@ The daemon also counts office days and marks rituals as due; the Assistant runs 
 | 1 | Blueprint | This document |
 | 2 | Skeleton and proof | Repository layout, marketplace, `claudarama` command, `init`, pack format, scenario harness, CI |
 | 3 | Server and runtime | Daemon, database, messages, turns, briefs, health |
-| 4 | Gates | Hooks, per-turn settings, grant, spend and concurrency checks |
+| 4 | Gates | Hooks, per-turn settings, grant and concurrency checks, pause at the subscription limit |
 | 5 | Company layer | People, hiring, levels, reviews, 1:1s, retros, lessons, key results, all-hands |
+| 5b | Budget | Spend caps per grant and per office day, ritual caps, the `spend` tool; built once the company layer produces real usage data |
 | 6 | Research department | Research skills; later departments as their milestones open |
 
 The oh-my-claudecode teardown (`docs/research/2026-09-29-omc-teardown.md`) is a research input: its candidates are assigned to sub-projects 2 to 5 in their own specs. Where the teardown skips an idea because "MemPalace covers it", that reason no longer holds; the office server covers it instead.

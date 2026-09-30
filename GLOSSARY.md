@@ -39,10 +39,10 @@ An interactive conversation the CEO opens with a person (`open` for the Assistan
 The messages about one ticket, or about one topic when there is no ticket. A turn's brief loads only the thread that woke it.
 
 **Mandate**:
-A body of work the CEO approved, which breaks into epics and tickets.
+A body of work toward a key result, which breaks into epics and tickets. Proposed by a head; the office works on it only once the CEO grants it.
 
 **Grant**:
-The CEO's approval for turns to spend on one mandate, with a spend cap and an optional expiry. Every turn for that mandate's tickets, replies included, draws on it. Rituals and the Assistant draw on the standing office grant.
+The CEO's approval of one mandate. Only turns for tickets under a granted mandate (replies included), rituals and the Assistant may start; other work needs a ticket first.
 
 **Office day**:
 A day on which the CEO opened the office. Rituals count office days, never calendar weeks.

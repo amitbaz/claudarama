@@ -9,6 +9,8 @@ import selectors
 import signal
 import subprocess
 import time
+import re
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +28,7 @@ from claudarama.db import (
     get_turn,
     grant_refusal,
     mark_turn_done,
+    mark_turn_queued,
     mark_turn_failed,
     mark_turn_running,
     queue_turn,
@@ -49,6 +52,7 @@ class OrgSettings:
     escalate: bool = False
     escalation_model: str = "opus"
     concurrency: int = 3
+    limit_fallback_minutes: float = 60
 
 
 def load_org_settings(pack_dir: Path) -> OrgSettings:
@@ -72,6 +76,11 @@ def load_org_settings(pack_dir: Path) -> OrgSettings:
             settings.escalate = value.lower() == "true"
         elif key == "escalation_model" and value:
             settings.escalation_model = value
+        elif key == "limit_fallback_minutes":
+            try:
+                settings.limit_fallback_minutes = float(value)
+            except ValueError:
+                pass
         elif key == "concurrency":
             try:
                 settings.concurrency = int(value)
@@ -80,6 +89,44 @@ def load_org_settings(pack_dir: Path) -> OrgSettings:
     return settings
 
 
+
+
+def parse_reset(text: str) -> datetime | None:
+    m = re.search(r'reset(?:s)?\s+(?:at|until)\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)', text, re.I)
+    if not m:
+        return None
+    time_str = m.group(1).upper()
+    try:
+        if "AM" in time_str or "PM" in time_str:
+            t = datetime.strptime(time_str.strip(), "%I:%M %p").time()
+        else:
+            t = datetime.strptime(time_str.strip(), "%H:%M").time()
+        now = datetime.now()
+        dt = datetime.combine(now.date(), t)
+        if dt < now:
+            dt += timedelta(days=1)
+        return dt
+    except ValueError:
+        return None
+
+def pause_machine(until: float) -> None:
+    path = Path.home() / ".claudarama" / "pause_until"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(until))
+
+def is_machine_paused() -> bool:
+    path = Path.home() / ".claudarama" / "pause_until"
+    try:
+        until = float(path.read_text())
+        if time.time() < until:
+            return True
+        path.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
+    return False
+
+def notify_ceo(msg: str) -> None:
+    subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claudarama"'], capture_output=True)
 
 def acquire_machine_slot(max_slots: int = 10) -> int:
     """Block until a machine slot is acquired. Returns file descriptor."""
@@ -277,12 +324,27 @@ class Supervisor:
             try:
                 outcome = self._spawn(launch, output_file, stall_timeout)
                 if outcome == "crash":  # one retry, same model
-                    outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
+                    txt = output_file.read_text(encoding="utf-8", errors="replace") if output_file.exists() else ""
+                    if not ("session limit" in txt.lower() or "weekly limit" in txt.lower()):
+                        outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
             except Exception:
                 outcome = "crash"
 
+            if outcome == "crash":
+                txt = output_file.read_text(encoding="utf-8", errors="replace") if output_file.exists() else ""
+                if "session limit" in txt.lower() or "weekly limit" in txt.lower():
+                    outcome = "limit"
+
             if outcome == "ok":
                 mark_turn_done(self.db_path, turn_id)
+                return
+
+            if outcome == "limit":
+                dt = parse_reset(txt)
+                until = dt.timestamp() if dt else time.time() + settings.limit_fallback_minutes * 60
+                pause_machine(until)
+                notify_ceo("Paused for API limits")
+                mark_turn_queued(self.db_path, turn_id)
                 return
 
             mark_turn_failed(self.db_path, turn_id)
@@ -306,6 +368,8 @@ class Supervisor:
 
     def poll(self) -> int:
         """Pick up all queued turns and run them. Returns the count of turns run."""
+        if is_machine_paused():
+            return 0
         queued = get_queued_turns(self.db_path)
         if not queued:
             return 0

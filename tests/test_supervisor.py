@@ -170,6 +170,13 @@ def _make_mock_claude(tmp_path: Path, output_lines: list[str] | None = None) -> 
     return script
 
 
+
+def _make_limit_claude(tmp_path: Path) -> Path:
+    script = tmp_path / "mock_claude"
+    script.write_text("#!/bin/sh\necho '{\"error\": \"You have hit your session limit. It resets at 10:00 AM.\"}'\nexit 1\n")
+    script.chmod(0o755)
+    return script
+
 def _make_failing_claude(tmp_path: Path) -> Path:
     """Create a mock executable that exits with code 1."""
     script = tmp_path / "mock_claude"
@@ -282,6 +289,36 @@ class TestSupervisor:
         with _connect(db_path) as conn:
             row = conn.execute("SELECT status FROM turns WHERE id = ?", (turn_id,)).fetchone()
         assert row["status"] == "failed"
+
+
+    def test_run_one_turn_usage_limit_requeues_and_pauses(self, tmp_path, monkeypatch):
+        from claudarama.supervisor import Supervisor, is_machine_paused, notify_ceo
+        import claudarama.supervisor
+        
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(claudarama.supervisor.Path, "home", lambda: home)
+        
+        # mock notify to avoid running osascript in tests
+        notified = []
+        monkeypatch.setattr(claudarama.supervisor, "notify_ceo", lambda m: notified.append(m))
+
+        mock_script = _make_limit_claude(tmp_path)
+        db_path, pack, output_dir, _, turn_id = self._setup(tmp_path, mock_script)
+
+        sup = Supervisor(
+            db_path=db_path,
+            pack_dir=pack,
+            output_dir=output_dir,
+            claude_binary=str(mock_script),
+        )
+        sup.run_one_turn(turn_id)
+
+        with _connect(db_path) as conn:
+            row = conn.execute("SELECT status FROM turns WHERE id = ?", (turn_id,)).fetchone()
+        assert row["status"] == "queued"
+        assert is_machine_paused()
+        assert notified == ["Paused for API limits"]
 
     def test_poll_picks_up_queued_turn_and_runs_it(self, tmp_path):
         from claudarama.supervisor import Supervisor

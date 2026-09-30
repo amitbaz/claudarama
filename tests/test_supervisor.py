@@ -504,3 +504,71 @@ def test_supervisor_records_usage(tmp_path):
         assert "Important note!" in launch.brief
         assert "--model" in launch.cmd
         assert launch.cmd[launch.cmd.index("--model") + 1] == "opus"
+
+def test_supervisor_resumes_conversation(tmp_path):
+    import json
+    from claudarama.db import queue_turn, save_ticket_conversation, get_turn, init_db
+    from claudarama.supervisor import Supervisor
+    import sqlite3
+    db_path = tmp_path / ".db"
+    init_db(db_path)
+    _seed_person(db_path, "p1")
+
+    (tmp_path / "org.yaml").write_text("resume_per_ticket: true")
+    save_ticket_conversation(db_path, "p1", "45", "sess-12345")
+
+    turn_id = queue_turn(db_path, "p1", thread="ticket:45")
+    turn = get_turn(db_path, turn_id)
+
+    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo", host="127.0.0.1", port=8000)
+    
+    from claudarama.supervisor import load_org_settings
+    settings = load_org_settings(tmp_path)
+    launch = supervisor.build_launch(turn, settings)
+    
+    assert "-r" in launch.cmd
+    assert "sess-12345" in launch.cmd
+
+def test_record_usage_saves_ticket_session(tmp_path):
+    import json
+    from claudarama.db import queue_turn, get_ticket_conversation, init_db, get_turn
+    from claudarama.supervisor import Supervisor
+    import sqlite3
+    db_path = tmp_path / ".db"
+    init_db(db_path)
+    _seed_person(db_path, "p1")
+
+    turn_id = queue_turn(db_path, "p1", thread="ticket:45")
+    turn = get_turn(db_path, turn_id)
+
+    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, host="127.0.0.1", port=8000)
+    output_file = tmp_path / "output.jsonl"
+    output_file.write_text(json.dumps({"session_id": "sess-new"}))
+    
+    supervisor._record_usage(turn_id, turn, output_file)
+    
+    assert get_ticket_conversation(db_path, "p1", "45") == "sess-new"
+
+def test_supervisor_does_not_resume_when_switch_off(tmp_path):
+    import json
+    from claudarama.db import queue_turn, save_ticket_conversation, get_turn, init_db
+    from claudarama.supervisor import Supervisor
+    import sqlite3
+    db_path = tmp_path / ".db"
+    init_db(db_path)
+    _seed_person(db_path, "p1")
+
+    (tmp_path / "org.yaml").write_text("resume_per_ticket: false")
+    save_ticket_conversation(db_path, "p1", "45", "sess-12345")
+
+    turn_id = queue_turn(db_path, "p1", thread="ticket:45")
+    turn = get_turn(db_path, turn_id)
+
+    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo", host="127.0.0.1", port=8000)
+    
+    from claudarama.supervisor import load_org_settings
+    settings = load_org_settings(tmp_path)
+    launch = supervisor.build_launch(turn, settings)
+    
+    assert "-r" not in launch.cmd
+    assert "sess-12345" not in launch.cmd

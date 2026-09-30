@@ -22,6 +22,7 @@ from claudarama.brief import build_brief
 from claudarama.gate import OFFICE_ENV, write_turn_settings
 from claudarama.session import mcp_config
 from claudarama.db import (
+    ticket_from_thread,
     create_turn_token,
     get_queued_turns,
     get_thread,
@@ -48,6 +49,7 @@ class TurnLaunch:
 
 @dataclass
 class OrgSettings:
+    resume_per_ticket: bool = False
     stall_timeout: float = 20 * 60
     escalate: bool = False
     escalation_model: str = "opus"
@@ -75,6 +77,8 @@ def load_org_settings(pack_dir: Path) -> OrgSettings:
                 pass  # keep default on a malformed value
         elif key == "escalate_stuck_turns":
             settings.escalate = value.lower() == "true"
+        elif key == "resume_per_ticket":
+            settings.resume_per_ticket = value.lower() == "true"
         elif key == "escalation_model" and value:
             settings.escalation_model = value
         elif key == "limit_fallback_minutes":
@@ -278,15 +282,14 @@ class Supervisor:
         )
         return res.returncode == 0
 
-    def build_launch(self, turn: dict) -> TurnLaunch:
+    def build_launch(self, turn: dict, settings: OrgSettings | None = None) -> TurnLaunch:
         """Assemble the brief, ``claude`` command and environment for a turn. Spawns nothing."""
         # A reply turn gets the live thread from the messages table.
         thread = None
         ticket = None
         if turn.get("thread"):
             thread = get_thread(self.db_path, turn["thread"])
-            if turn["thread"].startswith("ticket:"):
-                ticket = turn["thread"][7:]
+            ticket = ticket_from_thread(turn["thread"])
 
         working_note = None
         if ticket:
@@ -308,34 +311,52 @@ class Supervisor:
         if turn["model"]:
             cmd += ["--model", turn["model"]]
 
+        if settings and settings.resume_per_ticket and ticket:
+            from claudarama.db import get_ticket_conversation
+            conversation_id = get_ticket_conversation(self.db_path, turn["person_id"], ticket)
+            if conversation_id:
+                cmd += ["-r", conversation_id]
+
         # One allowlist feeds both walls: native rules (unlisted calls denied) and the gate hook.
         settings_path = self.output_dir / f"{turn['id']}.settings.json"
         write_turn_settings(self.pack_dir, settings_path)
         cmd += ["--settings", str(settings_path), "--permission-mode", "dontAsk"]
         return TurnLaunch(brief=brief, cmd=cmd, env={**os.environ, OFFICE_ENV: str(settings_path)})
 
-    def _record_usage(self, turn_id: str, output_file: Path) -> None:
+    def _record_usage(self, turn_id: str, turn: dict, output_file: Path) -> None:
         if not output_file.exists():
             return
         import json
         from claudarama.db import save_turn_usage
-        last_line = ""
+        usage = None
+        conversation_id = None
+        model = None
         with open(output_file, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
-                if line:
-                    last_line = line
-        if not last_line:
-            return
-        try:
-            data = json.loads(last_line)
-            usage = data.get("usage")
-            if usage:
-                if "cost" not in usage and "cost" in data:
-                    usage["cost"] = data["cost"]
-                save_turn_usage(self.db_path, turn_id, usage, data.get("model"))
-        except json.JSONDecodeError:
-            pass
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    if "session_id" in data:
+                        conversation_id = data["session_id"]
+                    if "usage" in data:
+                        usage = data["usage"]
+                        if "cost" not in usage and "cost" in data:
+                            usage["cost"] = data["cost"]
+                    if "model" in data:
+                        model = data["model"]
+                except json.JSONDecodeError:
+                    pass
+
+        if usage:
+            from claudarama.db import save_turn_usage
+            save_turn_usage(self.db_path, turn_id, usage, model)
+
+        ticket = ticket_from_thread(turn.get("thread"))
+        if conversation_id and ticket:
+            from claudarama.db import save_ticket_conversation
+            save_ticket_conversation(self.db_path, turn["person_id"], ticket, conversation_id)
 
     def run_one_turn(self, turn_id: str) -> None:
         """Execute a single turn: build brief, spawn process, handle crash/stall."""
@@ -355,7 +376,7 @@ class Supervisor:
             else settings.stall_timeout
         )
 
-        launch = self.build_launch(turn)
+        launch = self.build_launch(turn, settings)
         
         slot_fd = acquire_machine_slot(10)
         try:
@@ -376,7 +397,7 @@ class Supervisor:
             except Exception:
                 outcome = "crash"
 
-            self._record_usage(turn_id, output_file)
+            self._record_usage(turn_id, turn, output_file)
 
             if outcome == "crash" and _check_limit():
                 outcome = "limit"

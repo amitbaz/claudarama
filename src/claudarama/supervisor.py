@@ -109,21 +109,23 @@ def parse_reset(text: str) -> datetime | None:
     except ValueError:
         return None
 
-def pause_machine(until: float) -> None:
+def pause_machine(until: float) -> bool:
     path = Path.home() / ".claudarama" / "pause_until"
+    was_paused = False
+    try:
+        was_paused = time.time() < float(path.read_text())
+    except (OSError, ValueError):
+        pass
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(str(until))
+    return not was_paused
 
 def is_machine_paused() -> bool:
     path = Path.home() / ".claudarama" / "pause_until"
     try:
-        until = float(path.read_text())
-        if time.time() < until:
-            return True
-        path.unlink(missing_ok=True)
+        return time.time() < float(path.read_text())
     except (OSError, ValueError):
-        pass
-    return False
+        return False
 
 def notify_ceo(msg: str) -> None:
     subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claudarama"'], capture_output=True)
@@ -321,19 +323,21 @@ class Supervisor:
             mark_turn_running(self.db_path, turn_id)
             output_file = self.output_dir / f"{turn_id}.jsonl"
 
+            txt = ""
+            def _check_limit() -> bool:
+                nonlocal txt
+                txt = output_file.read_text(encoding="utf-8", errors="replace") if output_file.exists() else ""
+                return "session limit" in txt.lower() or "weekly limit" in txt.lower()
+
             try:
                 outcome = self._spawn(launch, output_file, stall_timeout)
-                if outcome == "crash":  # one retry, same model
-                    txt = output_file.read_text(encoding="utf-8", errors="replace") if output_file.exists() else ""
-                    if not ("session limit" in txt.lower() or "weekly limit" in txt.lower()):
-                        outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
+                if outcome == "crash" and not _check_limit():
+                    outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
             except Exception:
                 outcome = "crash"
 
-            if outcome == "crash":
-                txt = output_file.read_text(encoding="utf-8", errors="replace") if output_file.exists() else ""
-                if "session limit" in txt.lower() or "weekly limit" in txt.lower():
-                    outcome = "limit"
+            if outcome == "crash" and _check_limit():
+                outcome = "limit"
 
             if outcome == "ok":
                 mark_turn_done(self.db_path, turn_id)
@@ -342,8 +346,8 @@ class Supervisor:
             if outcome == "limit":
                 dt = parse_reset(txt)
                 until = dt.timestamp() if dt else time.time() + settings.limit_fallback_minutes * 60
-                pause_machine(until)
-                notify_ceo("Paused for API limits")
+                if pause_machine(until):
+                    notify_ceo("Paused for API limits")
                 mark_turn_queued(self.db_path, turn_id)
                 return
 

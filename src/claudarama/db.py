@@ -73,6 +73,13 @@ CREATE TABLE IF NOT EXISTS briefs (
     FOREIGN KEY(turn_id) REFERENCES turns(id)
 );
 
+CREATE TABLE IF NOT EXISTS ticket_conversations (
+    person_id TEXT NOT NULL,
+    ticket TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    PRIMARY KEY (person_id, ticket)
+);
+
 CREATE TABLE IF NOT EXISTS working_notes (
     person_id TEXT NOT NULL,
     ticket TEXT NOT NULL,
@@ -519,3 +526,23 @@ def is_ticket_hard(db_path: Path, ticket: str) -> bool:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute("SELECT hard FROM tickets WHERE id = ?", (ticket,)).fetchone()
     return bool(row and row[0])
+
+
+def save_ticket_conversation(db_path: Path, person_id: str, ticket: str, conversation_id: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO ticket_conversations (person_id, ticket, conversation_id) VALUES (?, ?, ?) "
+            "ON CONFLICT(person_id, ticket) DO UPDATE SET conversation_id=excluded.conversation_id",
+            (person_id, ticket, conversation_id)
+        )
+
+def get_ticket_conversation(db_path: Path, person_id: str, ticket: str) -> str | None:
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute("SELECT conversation_id FROM ticket_conversations WHERE person_id = ? AND ticket = ?", (person_id, ticket))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+def ticket_from_thread(thread: str | None) -> str | None:
+    if thread and thread.startswith("ticket:"):
+        return thread[7:]
+    return None

@@ -103,6 +103,8 @@ Turns start fresh on every wake. Resuming one conversation per person and ticket
 
 The winner becomes the default. Always-on sessions stay rejected.
 
+**Experiment result**: Running the local comparison scenario (scenarios/compare_resume.py) showed that while `resume_per_ticket: true` saves initial file-reading API calls, the unbounded conversation growth leads to massive input token costs once the 1-hour cache expires. `resume_per_ticket: false` (fresh starts + working notes) remains the default as it yields significantly lower overall cost over long tickets.
+
 ## 14. PreCompact checkpoint
 
 The PreCompact hook stays: if a long turn compacts, it saves a checkpoint to the server first, so the next turn does not lose the work.

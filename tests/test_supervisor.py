@@ -332,7 +332,13 @@ class TestBuildLaunch:
         from claudarama.db import get_turn, queue_turn
         from claudarama.supervisor import Supervisor
 
-        db_path, pack, output_dir, _, _ = TestSupervisor()._setup(tmp_path)
+        db_path = tmp_path / "office.db"
+        init_db(db_path)
+        _seed_person(db_path, "p1", role="fullstack-engineer")
+        pack = tmp_path / ".claudarama"
+        (pack / "profiles").mkdir(parents=True)
+        (pack / "company.md").write_text("# Test Co\n")
+        output_dir = tmp_path / "output"
         turn_id = queue_turn(db_path, person_id="p1", model="opus", branch="feat/x")
         sup = Supervisor(db_path, pack, output_dir, claude_binary="claude")
 

@@ -53,6 +53,7 @@ class OrgSettings:
     escalation_model: str = "opus"
     concurrency: int = 3
     limit_fallback_minutes: float = 60
+    batch_window_minutes: float = 2
 
 
 def load_org_settings(pack_dir: Path) -> OrgSettings:
@@ -79,6 +80,11 @@ def load_org_settings(pack_dir: Path) -> OrgSettings:
         elif key == "limit_fallback_minutes":
             try:
                 settings.limit_fallback_minutes = float(value)
+            except ValueError:
+                pass
+        elif key == "batch_window_minutes":
+            try:
+                settings.batch_window_minutes = float(value)
             except ValueError:
                 pass
         elif key == "concurrency":

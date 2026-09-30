@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claudarama.brief import build_brief
+from claudarama.gate import OFFICE_ENV, write_turn_settings
 from claudarama.session import mcp_config
 from claudarama.db import (
     create_turn_token,
@@ -163,7 +164,12 @@ class Supervisor:
         ]
         if turn["model"]:
             cmd += ["--model", turn["model"]]
-        return TurnLaunch(brief=brief, cmd=cmd)
+
+        # One allowlist feeds both walls: native rules (unlisted calls denied) and the gate hook.
+        settings_path = self.output_dir / f"{turn['id']}.settings.json"
+        write_turn_settings(self.pack_dir, settings_path)
+        cmd += ["--settings", str(settings_path), "--permission-mode", "dontAsk"]
+        return TurnLaunch(brief=brief, cmd=cmd, env={**os.environ, OFFICE_ENV: str(settings_path)})
 
     def run_one_turn(self, turn_id: str) -> None:
         """Execute a single turn: build brief, spawn process, handle crash/stall."""

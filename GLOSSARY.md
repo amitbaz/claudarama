@@ -52,3 +52,6 @@ A day on which the CEO opened the office. Rituals count office days, never calen
 
 **Gate**:
 An action only the CEO may take or approve.
+
+**Gate hook**:
+The PreToolUse hook that checks every tool call of a turn against the turn's allowlist and denies what is not on it. It enforces the allowlist; it is not itself a Gate.

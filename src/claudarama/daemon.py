@@ -145,6 +145,15 @@ def create_mcp_server(
         """Who the token in the MCP URL speaks for."""
         return asdict(authenticate(db_path, _token_of(ctx)))
 
+    @server.tool()
+    def ship_verdict(pull_request: int, head_commit: str, verdict: str, ctx: Context) -> dict:
+        """Record a SHIP verdict for a PR's head commit. The reviewer is taken from your token."""
+        from claudarama.db import record_verdict
+        identity = authenticate(db_path, _token_of(ctx))
+        reviewer_id = identity.person_id or "ceo"
+        record_verdict(db_path, pull_request, head_commit, reviewer_id, verdict)
+        return {"ok": True, "pull_request": pull_request, "head_commit": head_commit, "verdict": verdict}
+
     return server
 
 

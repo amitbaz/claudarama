@@ -297,6 +297,29 @@ class Supervisor:
         cmd += ["--settings", str(settings_path), "--permission-mode", "dontAsk"]
         return TurnLaunch(brief=brief, cmd=cmd, env={**os.environ, OFFICE_ENV: str(settings_path)})
 
+    def _record_usage(self, turn_id: str, output_file: Path) -> None:
+        if not output_file.exists():
+            return
+        import json
+        from claudarama.db import save_turn_usage
+        last_line = ""
+        with open(output_file, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    last_line = line
+        if not last_line:
+            return
+        try:
+            data = json.loads(last_line)
+            usage = data.get("usage")
+            if usage:
+                if "cost" not in usage and "cost" in data:
+                    usage["cost"] = data["cost"]
+                save_turn_usage(self.db_path, turn_id, usage)
+        except json.JSONDecodeError:
+            pass
+
     def run_one_turn(self, turn_id: str) -> None:
         """Execute a single turn: build brief, spawn process, handle crash/stall."""
         turn = get_turn(self.db_path, turn_id)
@@ -341,6 +364,7 @@ class Supervisor:
 
             if outcome == "ok":
                 mark_turn_done(self.db_path, turn_id)
+                self._record_usage(turn_id, output_file)
                 return
 
             if outcome == "limit":

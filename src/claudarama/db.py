@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS turns (
     branch TEXT,
     kind TEXT NOT NULL DEFAULT 'work',  -- 'work', 'ritual' or 'assistant'
     refusal TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cache_read_tokens INTEGER,
+    cache_write_tokens INTEGER,
+    cost REAL,
     FOREIGN KEY(person_id) REFERENCES people(id)
 );
 
@@ -129,6 +134,9 @@ def init_db(db_path: Path) -> None:
         for col, decl in (
             ("thread", "TEXT"), ("model", "TEXT"), ("branch", "TEXT"),
             ("kind", "TEXT NOT NULL DEFAULT 'work'"), ("refusal", "TEXT"),
+            ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER"),
+            ("cache_read_tokens", "INTEGER"), ("cache_write_tokens", "INTEGER"),
+            ("cost", "REAL"),
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE turns ADD COLUMN {col} {decl}")
@@ -251,6 +259,22 @@ def refuse_turn(db_path: Path, turn_id: str, reason: str) -> None:
     _set_turn_status(db_path, turn_id, "refused")
     with sqlite3.connect(db_path) as conn:
         conn.execute("UPDATE turns SET refusal = ? WHERE id = ?", (reason, turn_id))
+
+
+def save_turn_usage(db_path: Path, turn_id: str, usage: dict) -> None:
+    """Save the usage and cost from a turn's result line."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE turns SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, cost = ? WHERE id = ?",
+            (
+                usage.get("input_tokens") or usage.get("inputTokens") or 0,
+                usage.get("output_tokens") or usage.get("outputTokens") or 0,
+                usage.get("cache_read_tokens") or usage.get("cacheReadTokens") or 0,
+                usage.get("cache_write_tokens") or usage.get("cacheWriteTokens") or 0,
+                usage.get("cost") or usage.get("totalCost") or usage.get("total_cost") or 0.0,
+                turn_id
+            ),
+        )
 
 
 def grant_mandate(db_path: Path, mandate_id: str) -> None:

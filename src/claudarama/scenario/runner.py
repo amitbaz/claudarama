@@ -338,3 +338,69 @@ def evaluate_against_ref(
         comparisons=comparisons,
     )
 
+
+class ScenarioRunner:
+    """Executes multi-step scenarios or falls back to single-turn evaluation."""
+
+    def __init__(self, invoker: Optional[LLMInvoker] = None):
+        self.invoker = invoker or MockInvoker()
+        self.ceo_inputs: list[str] = []
+        self.mock_turns_yielded: list[list[Any]] = []
+
+    def run(self, scenario: Scenario, runs: int = 1) -> ScenarioEvaluationResult:
+        if not getattr(scenario, "steps", None):
+            return evaluate_scenario(scenario, invoker=self.invoker, runs=runs)
+
+        run_results: list[SingleRunResult] = []
+        passed_count = 0
+
+        for _ in range(max(1, runs)):
+            final_reply_parts = []
+            for step in scenario.steps:
+                step_type = step.get("type")
+                if step_type == "mock_llm_turns":
+                    turns = step.get("turns", [])
+                    self.mock_turns_yielded.append(turns)
+                    final_reply_parts.append(json.dumps(turns))
+                elif step_type == "ceo_action":
+                    input_val = step.get("input", "")
+                    self.ceo_inputs.append(input_val)
+                    final_reply_parts.append(f"CEO ACTION: {input_val}")
+            
+            final_reply = "\n".join(final_reply_parts)
+            
+            inc_results = evaluate_includes(final_reply, scenario.checks.includes)
+            exc_results = evaluate_excludes(final_reply, scenario.checks.excludes)
+
+            inc_passed = all(r.passed for r in inc_results)
+            exc_passed = all(r.passed for r in exc_results)
+
+            judge_passed = True
+            judge_res = None
+            if scenario.judge:
+                judge_prompt = f"{scenario.judge}\n\n[Agent Output]:\n{final_reply}"
+                judge_raw = self.invoker.invoke(judge_prompt, scenario)
+                judge_res = parse_judge_output(judge_raw)
+                judge_passed = judge_res.passed
+
+            run_passed = inc_passed and exc_passed and judge_passed
+            if run_passed:
+                passed_count += 1
+
+            run_results.append(
+                SingleRunResult(
+                    passed=run_passed,
+                    agent_reply=final_reply,
+                    include_checks=inc_results,
+                    exclude_checks=exc_results,
+                    judge_result=judge_res,
+                )
+            )
+
+        return ScenarioEvaluationResult(
+            scenario_name=scenario.name,
+            passed=passed_count > (runs / 2),
+            total_runs=runs,
+            passed_runs=passed_count,
+            run_results=run_results,
+        )

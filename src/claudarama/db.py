@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS turns (
     ended_at TIMESTAMP,
     model TEXT,
     branch TEXT,
+    kind TEXT NOT NULL DEFAULT 'work',  -- 'work', 'ritual' or 'assistant'
+    refusal TEXT,
     FOREIGN KEY(person_id) REFERENCES people(id)
 );
 
@@ -45,6 +47,18 @@ CREATE TABLE IF NOT EXISTS tokens (
     person_id TEXT,
     turn_id TEXT,
     ended_at TIMESTAMP   -- set when a 'session' token's session exits
+);
+
+CREATE TABLE IF NOT EXISTS mandates (
+    id TEXT PRIMARY KEY,
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tickets (
+    id TEXT PRIMARY KEY,
+    mandate_id TEXT NOT NULL,
+    hard INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY(mandate_id) REFERENCES mandates(id)
 );
 
 CREATE TABLE IF NOT EXISTS briefs (
@@ -103,9 +117,12 @@ def init_db(db_path: Path) -> None:
         conn.executescript(SCHEMA_SQL)
         # Databases created before messaging/escalation/threads lack these columns.
         cols = {r[1] for r in conn.execute("PRAGMA table_info(turns)")}
-        for col in ("thread", "model", "branch"):
+        for col, decl in (
+            ("thread", "TEXT"), ("model", "TEXT"), ("branch", "TEXT"),
+            ("kind", "TEXT NOT NULL DEFAULT 'work'"), ("refusal", "TEXT"),
+        ):
             if col not in cols:
-                conn.execute(f"ALTER TABLE turns ADD COLUMN {col} TEXT")
+                conn.execute(f"ALTER TABLE turns ADD COLUMN {col} {decl}")
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
         if "thread" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN thread TEXT")
@@ -130,8 +147,11 @@ def queue_turn(
     thread: str | None = None,
     model: str | None = None,
     branch: str | None = None,
+    kind: str = "work",
 ) -> str:
     """Create a new turn with status 'queued'. Returns the turn ID.
+
+    *kind* is 'work', 'ritual' or 'assistant'; only 'work' turns need a grant.
 
     *thread* is the key of the message thread that woke the turn. When set, the
     supervisor fetches the live thread from the ``messages`` table at run-time
@@ -142,9 +162,9 @@ def queue_turn(
     turn_id = str(uuid.uuid4())
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO turns (id, person_id, status, thread, model, branch) "
-            "VALUES (?, ?, 'queued', ?, ?, ?)",
-            (turn_id, person_id, thread, model, branch),
+            "INSERT INTO turns (id, person_id, status, thread, model, branch, kind) "
+            "VALUES (?, ?, 'queued', ?, ?, ?, ?)",
+            (turn_id, person_id, thread, model, branch, kind),
         )
     return turn_id
 
@@ -171,7 +191,7 @@ def get_turn(db_path: Path, turn_id: str) -> dict | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT t.id, t.person_id, t.status, t.thread, t.model, t.branch, p.role "
+            "SELECT t.id, t.person_id, t.status, t.thread, t.model, t.branch, t.kind, p.role "
             "FROM turns t JOIN people p ON t.person_id = p.id "
             "WHERE t.id = ?",
             (turn_id,),
@@ -181,7 +201,7 @@ def get_turn(db_path: Path, turn_id: str) -> dict | None:
 
 def _set_turn_status(db_path: Path, turn_id: str, status: str) -> None:
     """Set a turn's status and, for terminal states, set ended_at."""
-    terminal = {"done", "failed"}
+    terminal = {"done", "failed", "refused"}
     with sqlite3.connect(db_path) as conn:
         if status in terminal:
             conn.execute(
@@ -208,6 +228,48 @@ def mark_turn_done(db_path: Path, turn_id: str) -> None:
 def mark_turn_failed(db_path: Path, turn_id: str) -> None:
     """Mark a turn as failed and set ended_at."""
     _set_turn_status(db_path, turn_id, "failed")
+
+
+def refuse_turn(db_path: Path, turn_id: str, reason: str) -> None:
+    """End a queued turn without starting it, recording why."""
+    _set_turn_status(db_path, turn_id, "refused")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE turns SET refusal = ? WHERE id = ?", (reason, turn_id))
+
+
+def grant_mandate(db_path: Path, mandate_id: str) -> None:
+    """Record the CEO's grant of a mandate. Granting twice is harmless."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("INSERT OR IGNORE INTO mandates (id) VALUES (?)", (mandate_id,))
+
+
+def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False) -> None:
+    """Put a ticket under a granted mandate; refuses an ungranted one."""
+    with sqlite3.connect(db_path) as conn:
+        if conn.execute("SELECT 1 FROM mandates WHERE id = ?", (mandate_id,)).fetchone() is None:
+            raise PermissionError(f"mandate {mandate_id!r} is not granted")
+        conn.execute(
+            "INSERT INTO tickets (id, mandate_id, hard) VALUES (?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET mandate_id = excluded.mandate_id, hard = excluded.hard",
+            (ticket, mandate_id, int(hard)),
+        )
+
+
+def grant_refusal(db_path: Path, turn: dict) -> str | None:
+    """Why a turn may not start, or None when it may.
+
+    Ritual and Assistant turns need no grant. Any other turn needs a ticket
+    (its own, or its thread's when it is a reply) under a granted mandate.
+    """
+    if turn["kind"] in ("ritual", "assistant") or turn["role"] == "assistant":
+        return None
+    thread = turn["thread"] or ""
+    if not thread.startswith("ticket:"):
+        return "no ticket: register one under a granted mandate first"
+    ticket = thread.removeprefix("ticket:")
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT 1 FROM tickets WHERE id = ?", (ticket,)).fetchone()
+    return None if row else f"ticket {ticket!r} is not under a granted mandate"
 
 
 def save_brief(db_path: Path, turn_id: str, content: str) -> None:

@@ -32,7 +32,7 @@ One allowlist, generated in one place from the core list, the pack's `gates.yaml
 1. **Native settings.** The daemon writes it into each turn's `--settings` as `permissions.allow` rules and runs the turn with `--permission-mode dontAsk`, so any call not covered is denied.
 2. **The gate hook.** A PreToolUse hook splits chained shell commands (`&&`, `||`, `;`, `|`, `$(...)`, backticks) and checks every part against the same allowlist. It denies with a reason the model sees, and fails closed on anything it cannot parse.
 
-Gated actions (money, staging and production, hosted databases, CI, secrets, repository settings, and the rest of the CEO's gates) never reach a headless turn. They run only in the CEO's `open` session, where Claude Code's own permission prompt is the CEO's approval. A person who needs one ends their turn with a BLOCKED message to the Assistant.
+Gated actions (money, staging and production, hosted databases, CI, secrets, repository settings, and the rest of the CEO's gates) never reach a headless turn. They run only in the CEO's `open` session, where Claude Code's own permission prompt is the CEO's approval (ADR-0002). A person who needs one ends their turn with a BLOCKED message to the Assistant.
 
 ## 4. Merging
 

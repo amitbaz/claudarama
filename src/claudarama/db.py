@@ -73,6 +73,14 @@ CREATE TABLE IF NOT EXISTS briefs (
     FOREIGN KEY(turn_id) REFERENCES turns(id)
 );
 
+CREATE TABLE IF NOT EXISTS working_notes (
+    person_id TEXT NOT NULL,
+    ticket TEXT NOT NULL,
+    note TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (person_id, ticket)
+);
+
 CREATE TABLE IF NOT EXISTS verdicts (
     pull_request INTEGER NOT NULL,
     head_commit TEXT NOT NULL,
@@ -463,3 +471,24 @@ def record_verdict(db_path: Path, pull_request: int, head_commit: str, reviewer_
             "ON CONFLICT(pull_request, head_commit, reviewer_id) DO UPDATE SET verdict = excluded.verdict",
             (pull_request, head_commit, reviewer_id, verdict),
         )
+
+def set_working_note(db_path: Path, person_id: str, ticket: str, note: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO working_notes (person_id, ticket, note, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
+            "ON CONFLICT(person_id, ticket) DO UPDATE SET note = excluded.note, updated_at = CURRENT_TIMESTAMP",
+            (person_id, ticket, note),
+        )
+
+def get_working_note(db_path: Path, person_id: str, ticket: str) -> str | None:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT note FROM working_notes WHERE person_id = ? AND ticket = ?",
+            (person_id, ticket),
+        ).fetchone()
+    return row[0] if row else None
+
+def is_ticket_hard(db_path: Path, ticket: str) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT hard FROM tickets WHERE id = ?", (ticket,)).fetchone()
+    return bool(row and row[0])

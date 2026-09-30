@@ -134,6 +134,18 @@ def create_mcp_server(
         return await send(identity, receiver_id, msg_type, body, ticket, topic)
 
     @server.tool()
+    def pin(note: str, ticket: str, ctx: Context) -> dict:
+        """Store a working note (max 500 chars) for a ticket."""
+        if len(note) > 500:
+            raise ValueError("working note over 500 characters")
+        identity = authenticate(db_path, _token_of(ctx))
+        if not identity.person_id:
+            raise ValueError("owner cannot pin")
+        from claudarama.db import set_working_note
+        set_working_note(db_path, identity.person_id, ticket, note)
+        return {"ok": True}
+
+    @server.tool()
     def grant(mandate: str, ctx: Context) -> dict:
         """Grant a mandate. Owner token only."""
         authenticate(db_path, _token_of(ctx), owner_only=True)

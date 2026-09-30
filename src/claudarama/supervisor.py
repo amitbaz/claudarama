@@ -282,10 +282,20 @@ class Supervisor:
         """Assemble the brief, ``claude`` command and environment for a turn. Spawns nothing."""
         # A reply turn gets the live thread from the messages table.
         thread = None
+        ticket = None
         if turn.get("thread"):
             thread = get_thread(self.db_path, turn["thread"])
+            if turn["thread"].startswith("ticket:"):
+                ticket = turn["thread"][7:]
 
-        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread)
+        working_note = None
+        if ticket:
+            from claudarama.db import get_working_note, is_ticket_hard
+            working_note = get_working_note(self.db_path, turn["person_id"], ticket)
+            if not turn["model"]:
+                turn["model"] = "opus" if is_ticket_hard(self.db_path, ticket) else "sonnet"
+
+        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread, ticket=ticket, working_note=working_note)
         if turn["branch"]:
             brief += f"\n\nWork on git branch `{turn['branch']}`.\n"
 

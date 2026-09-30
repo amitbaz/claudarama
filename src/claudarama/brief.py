@@ -6,6 +6,8 @@ def build_brief(
     pack_dir: Path,
     role: str,
     thread: list[dict] | None = None,
+    ticket: str | None = None,
+    working_note: str | None = None,
 ) -> str:
     """Build a brief from the pack's company.md and the role's profile file.
 
@@ -37,5 +39,11 @@ def build_brief(
             body = msg.get("body", "")
             lines.append(f"**{sender} → {receiver}** [{msg_type}]: {body}")
         sections.append("\n".join(lines))
+
+    if ticket:
+        sections.append(f"## Ticket\n\nWorking on ticket: {ticket}")
+    
+    if working_note:
+        sections.append(f"## Working Note\n\n{working_note}")
 
     return "\n\n---\n\n".join(sections) if sections else ""

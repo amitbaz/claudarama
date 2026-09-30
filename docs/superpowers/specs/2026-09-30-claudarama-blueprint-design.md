@@ -22,15 +22,7 @@ Success means:
 
 ## Glossary
 
-- **Office**: one company, for one project. Claudarama core plus one project pack.
-- **Core**: the `claudarama` plugin. Identical for every project.
-- **Pack**: the project's `.claudarama/` directory, which adapts the core to that project.
-- **Seat**: a position in the org chart with a role file, such as CTO or PM.
-- **Craft**: a staff profile (`agents/*.md`), such as fullstack-engineer or designer.
-- **Person**: a named member with one craft or seat, a level, a manager and a record.
-- **Turn**: one headless run of a person's conversation, started by the server.
-- **Office day**: a day on which the CEO opened the office. Rituals count office days, never calendar weeks.
-- **Gate**: an action only the CEO may take or approve.
+Terms are defined in [`GLOSSARY.md`](../../../GLOSSARY.md), the single source for the office's language.
 
 ## Structure: core and packs
 
@@ -107,7 +99,7 @@ Each ritual has a trigger, an owner, a document, an effect on later turns, and a
 | Ritual | Trigger | Owner | Document | Effect |
 |---|---|---|---|---|
 | Goals and key results | Start of a cycle | CPO and CTO draft; heads add department key results | `company/okrs/<cycle>.md`, a pull request the CEO approves | Current key results load into every brief; choices are ranked against them |
-| All-hands | Every five office days | Assistant | `company/all-hands/<date>.md`, one page: key-result numbers from the server, what shipped, wins credited by name, lessons adopted, ideas, what's next | Loads into every brief until the next one; feeds the CEO's evening email |
+| All-hands | Every five office days | Assistant | `company/all-hands/<date>.md`, one page: key-result numbers from the server, what shipped, wins credited by name, lessons adopted, ideas, what's next | Loads into every brief until the next one |
 | Retro | End of a mandate, an incident, or a ticket reworked twice | The team's lead, with a three-line note from each member | `company/retros/<id>.md` plus lesson proposals | Lessons the CEO approves load into the matching briefs |
 | 1:1 | After each ticket | The person's manager | Three lines of feedback in the person's record | The person's next turn sees it |
 | Review | Every ten tickets or at the end of a cycle | The manager, from the server's numbers | `company/reviews/<person>-<date>.md` with promote, keep or coach | The CEO approves; the level changes in the server and autonomy follows |
@@ -122,11 +114,11 @@ Rituals run on Sonnet with a small spend cap each; reviews run on Opus.
 
 ## The office server
 
-**Shape.** One local daemon per machine serves every office, started by `claudarama up` (safe to run twice). Sessions reach it over MCP HTTP on localhost. Storage is one SQLite file per office, `~/.claudarama/<project>/office.db`; search uses SQLite full-text search. The server makes no model calls, computes no embeddings and does no work per session, so many members cost no idle CPU. (MemPalace stays off in office sessions because per-session saving overloaded the machine.)
+**Shape.** One local daemon per machine serves every office, started by `claudarama up` (safe to run twice). Turns and sessions reach it over MCP HTTP on localhost. Storage is one SQLite file per office, `~/.claudarama/<project>/office.db`; search uses SQLite full-text search. The server makes no model calls, computes no embeddings and does no work per conversation, so many members cost no idle CPU. (MemPalace stays off in turns and sessions because per-session saving overloaded the machine.)
 
 **Runtime: members are conversations, not processes.** Turns are fresh per assignment. When work arrives, the daemon starts a new Claude Code conversation (`claude -p`) for the ticket or assignment in the person's worktree with the person's model, the per-turn settings and a freshly built brief. It streams the JSON output into the database, and the process exits. Continuity is carried entirely by the generated brief and the person's stored record. A waiting member runs nothing. At most N turns run at once; N comes from `org.yaml` (for Gili: three engineering turns and seven in total).
 
-**The CEO's session and Communication.** V1 communication is strictly terminal-first; there is no "evening email" concept. The Assistant is the CEO's interactive session, opened with `claudarama open`. It sends work through the server, and a background watcher (`claudarama inbox --wait assistant`) wakes it when mail arrives. When the CEO runs `claudarama open`, the Assistant greets them and immediately uses Claude's interactive user question tool to present any batched reports and ask for decisions on blocking gates. If the CEO is AFK (not running `claudarama open`) and the office generates information or hits a blocking gate, the local daemon triggers a native macOS push notification. `claudarama talk <name>` opens any person's conversation interactively; on exit the person returns to server-driven turns.
+**The CEO's session and Communication.** V1 communication is strictly terminal-first; there is no "evening email" concept. The Assistant is the CEO's interactive session, opened with `claudarama open`. It sends work through the server, and a background watcher (`claudarama inbox --wait assistant`) wakes it when mail arrives. When the CEO runs `claudarama open`, the Assistant greets them and immediately uses Claude's interactive user question tool to present any batched reports and ask for decisions on blocking gates. If the CEO is AFK (not running `claudarama open`) and the office generates information or hits a blocking gate, the local daemon triggers a native macOS push notification. `claudarama talk <name>` opens a session with any person, seeded with the brief a turn would get. That person's queued turns wait until the session ends, so a person never has a turn and a session at the same time.
 
 **Jobs and tools.**
 
@@ -139,7 +131,7 @@ Rituals run on Sonnet with a small spend cap each; reviews run on Opus.
 
 The daemon also counts office days and marks rituals as due; the Assistant runs due rituals.
 
-**Health from facts.** A crash is a nonzero exit. A stuck turn is one with no stream events for 20 minutes (configurable in `org.yaml`). A rate limit is read from the turn's error; the daemon requeues the turn after the reset. A crash gets one retry on the same model; stuck work follows the stuck ladder (one retry one model up on a new branch, then pause).
+**Health from facts.** A crash is a nonzero exit. A stuck turn is one with no stream events for 20 minutes (configurable in `org.yaml`). A rate limit is read from the turn's error; the daemon requeues the turn after the reset. A crash gets one retry on the same model; a stuck turn fails by default. Escalation (one retry on a more capable model, on a new branch) is opt-in through `org.yaml`, so no turn spends on a bigger model without the CEO choosing it.
 
 **Gates the server enforces.** No turn without a grant; no turn beyond the concurrency cap; no turn past the ledger's spend cap, checked before each turn. A hook denies direct access to `office.db`. All members run as the owner's OS user, so a determined agent could still forge local state; per-role GitHub App identities and provider-side spend limits (from the 2026-09-28 terminal-first decisions) remain the stronger layer and belong to the Gili pack's gates.
 
@@ -203,8 +195,6 @@ Two fixes can go into today's `gili-dev` without waiting: the scenario judge tha
 Each has a fallback chosen in the sub-project's spec:
 
 - whether the `claude -p` JSON result reports the turn's cost;
-- whether hooks and `--settings` apply under `claude -p --resume`;
-- whether the appended system prompt can be refreshed on every resumed turn;
 - how native deny rules such as `Bash(gh auth switch *)` treat chained commands, and the `--disallowedTools` pattern syntax for MCP tools;
 - the MCP HTTP transport from a plugin's `.mcp.json` to a locally started daemon.
 

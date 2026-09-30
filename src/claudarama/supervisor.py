@@ -4,15 +4,19 @@ Health: a crash (non-zero exit) is retried once on the same model. A stalled tur
 (no stdout for ``stall_timeout`` seconds) is killed; it fails unless ``org.yaml``
 opts in to escalation, in which case a retry is queued on a higher model on a new branch.
 """
+import json
 import os
 import selectors
+import shlex
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from claudarama.brief import build_brief
+from claudarama.gate import OFFICE_ENV, build_allowlist
 from claudarama.session import mcp_config
 from claudarama.db import (
     create_turn_token,
@@ -163,7 +167,19 @@ class Supervisor:
         ]
         if turn["model"]:
             cmd += ["--model", turn["model"]]
-        return TurnLaunch(brief=brief, cmd=cmd)
+
+        # One allowlist feeds both walls: native rules (unlisted calls denied) and the gate hook.
+        allow, deny = build_allowlist(self.pack_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        settings_path = self.output_dir / f"{turn['id']}.settings.json"
+        settings_path.write_text(json.dumps({
+            "permissions": {"allow": allow, "deny": deny},
+            "hooks": {"PreToolUse": [{"matcher": "", "hooks": [
+                {"type": "command", "command": f"{shlex.quote(sys.executable)} -m claudarama.gate"}
+            ]}]},
+        }), encoding="utf-8")
+        cmd += ["--settings", str(settings_path), "--permission-mode", "dontAsk"]
+        return TurnLaunch(brief=brief, cmd=cmd, env={**os.environ, OFFICE_ENV: str(settings_path)})
 
     def run_one_turn(self, turn_id: str) -> None:
         """Execute a single turn: build brief, spawn process, handle crash/stall."""

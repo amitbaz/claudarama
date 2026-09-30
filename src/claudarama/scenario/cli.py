@@ -71,6 +71,10 @@ def run_eval_cli(
         run_scenario_file,
     )
 
+    if runs < 1:
+        print(f"Error: --runs must be at least 1, got {runs}.", file=sys.stderr)
+        return 1
+
     scenario_paths = discover_scenario_paths(paths)
     if not scenario_paths:
         print("Error: No scenario files found to evaluate.", file=sys.stderr)
@@ -86,6 +90,10 @@ def run_eval_cli(
             invoker=invoker,
             runs=runs,
         )
+
+        if comp_summary.error:
+            print(f"Error: {comp_summary.error}", file=sys.stderr)
+            return 1
 
         regressed_count = 0
         failed_count = 0
@@ -134,14 +142,8 @@ def run_eval_cli(
                 print(f"  - Excludes self-test error: {err}", file=sys.stderr)
             for idx, run in enumerate(res.run_results, 1):
                 if not run.passed:
-                    for chk in run.include_checks:
-                        if not chk.passed:
-                            print(f"  - Run {idx} missing required pattern: {chk.pattern}", file=sys.stderr)
-                    for chk in run.exclude_checks:
-                        if not chk.passed:
-                            print(f"  - Run {idx} matched excluded pattern: {chk.pattern}", file=sys.stderr)
-                    if run.judge_result and not run.judge_result.passed:
-                        print(f"  - Run {idx} judge failed: {run.judge_result.reason}", file=sys.stderr)
+                    for msg in run.error_messages():
+                        print(f"  - Run {idx}: {msg}", file=sys.stderr)
 
     print(f"\nResults: {passed_count} passed, {failed_count} failed (Total: {len(scenario_paths)})")
     return 0 if failed_count == 0 else 1

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import subprocess
-from typing import Any, Callable, Optional, Protocol, Sequence
+from typing import Any, Callable, Literal, Optional, Protocol, Sequence
 
 from claudarama.scenario.judge import (
     CheckResult,
@@ -19,6 +19,15 @@ from claudarama.scenario.validator import (
     validate_scenario,
     validate_scenario_file,
 )
+
+ComparisonStatus = Literal[
+    "UNCHANGED",
+    "IMPROVED",
+    "REGRESSED",
+    "STILL_FAILING",
+    "NEW_PASS",
+    "NEW_FAIL",
+]
 
 
 class LLMInvoker(Protocol):
@@ -49,6 +58,9 @@ class MockInvoker:
             return self._fn(prompt, scenario)
         if self._responses:
             return self._responses.pop(0)
+        # Default judge response when evaluating judge prompt
+        if "[Agent Output]:" in prompt or (scenario.judge and scenario.judge in prompt):
+            return '{"pass": true, "reason": "Evaluated successfully"}'
         return self.default_response
 
 
@@ -62,6 +74,21 @@ class SingleRunResult:
     exclude_checks: list[CheckResult] = field(default_factory=list)
     judge_result: Optional[JudgeResult] = None
     error: Optional[str] = None
+
+    def error_messages(self) -> list[str]:
+        """Collect human-readable error messages for this run."""
+        errs: list[str] = []
+        for chk in self.include_checks:
+            if not chk.passed:
+                errs.append(f"Missing required pattern: {chk.pattern}")
+        for chk in self.exclude_checks:
+            if not chk.passed:
+                errs.append(f"Matched excluded pattern: {chk.pattern}")
+        if self.judge_result and not self.judge_result.passed:
+            errs.append(f"Judge failed: {self.judge_result.reason}")
+        if self.error:
+            errs.append(self.error)
+        return errs
 
 
 @dataclass
@@ -83,6 +110,9 @@ def evaluate_scenario(
     runs: int = 1,
 ) -> ScenarioEvaluationResult:
     """Evaluate a scenario definition using the provided invoker across N runs."""
+    if runs < 1:
+        raise ValueError(f"Number of runs must be at least 1, got {runs}.")
+
     if invoker is None:
         invoker = MockInvoker()
 
@@ -174,7 +204,7 @@ class ScenarioComparison:
     scenario_path: Path
     current_result: ScenarioEvaluationResult
     base_result: Optional[ScenarioEvaluationResult]
-    status: str  # UNCHANGED, IMPROVED, REGRESSED, STILL_FAILING, NEW_PASS, NEW_FAIL
+    status: ComparisonStatus
 
 
 @dataclass
@@ -184,6 +214,7 @@ class ComparisonSummary:
     passed: bool
     git_ref: str
     comparisons: list[ScenarioComparison] = field(default_factory=list)
+    error: Optional[str] = None
 
 
 def load_scenario_from_git(
@@ -226,8 +257,26 @@ def evaluate_against_ref(
     runs: int = 1,
 ) -> ComparisonSummary:
     """Evaluate scenarios on the current branch and compare performance against git_ref."""
+    if runs < 1:
+        raise ValueError(f"Number of runs must be at least 1, got {runs}.")
+
     if repo_root is None:
         repo_root = Path.cwd()
+
+    # Verify that git_ref resolves
+    verify_proc = subprocess.run(
+        ["git", "rev-parse", "--verify", git_ref],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if verify_proc.returncode != 0:
+        return ComparisonSummary(
+            passed=False,
+            git_ref=git_ref,
+            comparisons=[],
+            error=f"Invalid git reference: '{git_ref}'",
+        )
 
     comparisons: list[ScenarioComparison] = []
     overall_passed = True
@@ -258,6 +307,7 @@ def evaluate_against_ref(
             )
 
         # Determine status
+        status: ComparisonStatus
         if base_res is None:
             status = "NEW_PASS" if current_res.passed else "NEW_FAIL"
         else:

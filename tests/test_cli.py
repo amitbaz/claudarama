@@ -171,3 +171,33 @@ def test_cli_eval_default_discovery(tmp_path: Path):
     assert "discovered-test" in result.stdout
 
 
+def test_cli_eval_against_invalid_git_ref(tmp_path: Path):
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text('{"name": "cli-against-err", "role": "eng", "prompt": "build", "checks": {"includes": ["TEST"]}}')
+
+    result = run_cli("eval", str(scenario), "--against", "nonexistent-branch-or-tag", cwd=tmp_path)
+    assert result.returncode == 1
+    assert "Invalid git reference" in result.stderr
+
+
+def test_cli_eval_invalid_runs_zero(tmp_path: Path):
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text('{"name": "cli-runs-err", "role": "eng", "prompt": "build", "checks": {"includes": ["TEST"]}}')
+
+    result = run_cli("eval", str(scenario), "--runs", "0", cwd=tmp_path)
+    assert result.returncode == 1
+    assert "--runs must be at least 1" in result.stderr
+
+
+def test_cli_eval_scenario_with_judge(tmp_path: Path):
+    scenario = tmp_path / "judge_scenario.json"
+    scenario.write_text(
+        '{"name": "judge-test", "role": "eng", "prompt": "build", "judge": "Is it good?", "checks": {"includes": ["DONE"]}}'
+    )
+
+    result = run_cli("eval", str(scenario), "--mock-response", "Status: DONE", cwd=tmp_path)
+    assert result.returncode == 0
+    assert "[PASS]" in result.stdout
+
+
+

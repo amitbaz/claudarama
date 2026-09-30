@@ -415,7 +415,11 @@ class TestBuildLaunch:
         assert "Test Co" in launch.brief
         assert "feat/x" in launch.brief
         assert launch.cmd[:5] == ["claude", "-p", launch.brief, "--output-format", "stream-json"]
-        assert launch.cmd[7:9] == ["--model", "opus"]
+        assert "--model" in launch.cmd
+        assert launch.cmd[launch.cmd.index("--model") + 1] == "opus"
         assert launch.cmd[5] == "--mcp-config"
+        assert "--strict-mcp-config" in launch.cmd
+        assert "--allowedTools" in launch.cmd
+        assert launch.cmd[launch.cmd.index("--allowedTools") + 1] == "Bash,Edit,Read,Glob,Grep,LS,View,Replace,Notebook"
         assert "CLAUDARAMA_OFFICE" in launch.env
 

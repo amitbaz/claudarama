@@ -185,7 +185,10 @@ def get_queued_turns(db_path: Path) -> list[dict]:
         rows = conn.execute(
             "SELECT t.id, t.person_id, p.role FROM turns t "
             "JOIN people p ON t.person_id = p.id "
-            "WHERE t.status = 'queued' ORDER BY t.started_at ASC"
+            "WHERE t.status = 'queued' "
+            "  AND NOT EXISTS (SELECT 1 FROM tokens WHERE kind = 'session' AND person_id = t.person_id AND ended_at IS NULL) "
+            "  AND NOT EXISTS (SELECT 1 FROM turns WHERE status = 'running' AND person_id = t.person_id) "
+            "ORDER BY t.started_at ASC"
         ).fetchall()
     return [dict(r) for r in rows]
 

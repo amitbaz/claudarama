@@ -12,6 +12,10 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import fcntl
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from claudarama.brief import build_brief
 from claudarama.gate import OFFICE_ENV, write_turn_settings
 from claudarama.session import mcp_config
@@ -44,6 +48,7 @@ class OrgSettings:
     stall_timeout: float = 20 * 60
     escalate: bool = False
     escalation_model: str = "opus"
+    concurrency: int = 3
 
 
 def load_org_settings(pack_dir: Path) -> OrgSettings:
@@ -67,8 +72,80 @@ def load_org_settings(pack_dir: Path) -> OrgSettings:
             settings.escalate = value.lower() == "true"
         elif key == "escalation_model" and value:
             settings.escalation_model = value
+        elif key == "concurrency":
+            try:
+                settings.concurrency = int(value)
+            except ValueError:
+                pass
     return settings
 
+
+
+def acquire_machine_slot(max_slots: int = 10) -> int:
+    """Block until a machine slot is acquired. Returns file descriptor."""
+    locks_dir = Path.home() / ".claudarama" / "machine_slots"
+    locks_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create ticket for FIFO queue
+    while True:
+        ticket = locks_dir / f"wait-{time.time_ns()}-{os.getpid()}-{threading.get_ident()}"
+        fd_ticket = os.open(ticket, os.O_CREAT | os.O_RDWR)
+        try:
+            fcntl.flock(fd_ticket, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            os.close(fd_ticket)
+            time.sleep(0.01)
+
+    try:
+        while True:
+            # Find the active first in line
+            first_ticket = None
+            for p in sorted(locks_dir.glob("wait-*")):
+                if p == ticket:
+                    if first_ticket is None:
+                        first_ticket = ticket
+                    continue
+                try:
+                    fd_check = os.open(p, os.O_RDWR)
+                    try:
+                        fcntl.flock(fd_check, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        os.unlink(p)
+                        fcntl.flock(fd_check, fcntl.LOCK_UN)
+                    except BlockingIOError:
+                        if first_ticket is None:
+                            first_ticket = p
+                    finally:
+                        os.close(fd_check)
+                except OSError:
+                    pass
+            
+            if first_ticket == ticket:
+                for i in range(max_slots):
+                    slot = locks_dir / f"slot-{i}.lock"
+                    try:
+                        fd_slot = os.open(slot, os.O_CREAT | os.O_RDWR)
+                        fcntl.flock(fd_slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        return fd_slot
+                    except (BlockingIOError, OSError):
+                        try:
+                            os.close(fd_slot)
+                        except OSError:
+                            pass
+            time.sleep(0.2)
+    finally:
+        try:
+            os.unlink(ticket)
+        except OSError:
+            pass
+        os.close(fd_ticket)
+
+def release_machine_slot(fd: int) -> None:
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    except OSError:
+        pass
 
 class Supervisor:
     """Supervisor loop that executes headless turns.
@@ -190,41 +267,51 @@ class Supervisor:
         )
 
         launch = self.build_launch(turn)
-        save_brief(self.db_path, turn_id, launch.brief)
-        mark_turn_running(self.db_path, turn_id)
-        output_file = self.output_dir / f"{turn_id}.jsonl"
-
+        
+        slot_fd = acquire_machine_slot(10)
         try:
-            outcome = self._spawn(launch, output_file, stall_timeout)
-            if outcome == "crash":  # one retry, same model
-                outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
-        except Exception:
-            outcome = "crash"
+            save_brief(self.db_path, turn_id, launch.brief)
+            mark_turn_running(self.db_path, turn_id)
+            output_file = self.output_dir / f"{turn_id}.jsonl"
 
-        if outcome == "ok":
-            mark_turn_done(self.db_path, turn_id)
-            return
+            try:
+                outcome = self._spawn(launch, output_file, stall_timeout)
+                if outcome == "crash":  # one retry, same model
+                    outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
+            except Exception:
+                outcome = "crash"
 
-        mark_turn_failed(self.db_path, turn_id)
-        # ponytail: escalates once; an already-escalated turn just fails (no pause or notify yet).
-        if (
-            outcome == "stalled"
-            and settings.escalate
-            and turn["model"] != settings.escalation_model
-        ):
-            branch = f"escalated/{turn_id[:8]}"
-            if self._create_branch(branch):
-                queue_turn(
-                    self.db_path,
-                    turn["person_id"],
-                    thread=turn["thread"],
-                    model=settings.escalation_model,
-                    branch=branch,
-                )
+            if outcome == "ok":
+                mark_turn_done(self.db_path, turn_id)
+                return
+
+            mark_turn_failed(self.db_path, turn_id)
+            # ponytail: escalates once; an already-escalated turn just fails (no pause or notify yet).
+            if (
+                outcome == "stalled"
+                and settings.escalate
+                and turn["model"] != settings.escalation_model
+            ):
+                branch = f"escalated/{turn_id[:8]}"
+                if self._create_branch(branch):
+                    queue_turn(
+                        self.db_path,
+                        turn["person_id"],
+                        thread=turn["thread"],
+                        model=settings.escalation_model,
+                        branch=branch,
+                    )
+        finally:
+            release_machine_slot(slot_fd)
 
     def poll(self) -> int:
         """Pick up all queued turns and run them. Returns the count of turns run."""
         queued = get_queued_turns(self.db_path)
-        for turn in queued:
-            self.run_one_turn(turn["id"])
+        if not queued:
+            return 0
+        settings = load_org_settings(self.pack_dir)
+        with ThreadPoolExecutor(max_workers=settings.concurrency) as executor:
+            futures = [executor.submit(self.run_one_turn, turn["id"]) for turn in queued]
+            for future in as_completed(futures):
+                future.result()
         return len(queued)

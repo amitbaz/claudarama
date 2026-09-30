@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from claudarama.db import init_db, queue_turn
+from claudarama.db import Identity, init_db, queue_turn
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +225,7 @@ class TestSendMCPTool:
 
         result = asyncio.run(
             send(
-                sender_turn_id=sender_turn_id,
-                sender_id="p1",
+                identity=Identity("turn", "p1", sender_turn_id),
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Task complete",
@@ -253,8 +252,7 @@ class TestSendMCPTool:
 
         asyncio.run(
             send(
-                sender_turn_id=sender_turn_id,
-                sender_id="p1",
+                identity=Identity("turn", "p1", sender_turn_id),
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Task complete",
@@ -279,8 +277,7 @@ class TestSendMCPTool:
 
         result = asyncio.run(
             send(
-                sender_turn_id=sender_turn_id,
-                sender_id="p1",
+                identity=Identity("turn", "p1", sender_turn_id),
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Task complete",
@@ -309,8 +306,7 @@ class TestSendMCPTool:
 
         result = asyncio.run(
             send(
-                sender_turn_id=sender_turn_id,
-                sender_id="p1",
+                identity=Identity("turn", "p1", sender_turn_id),
                 receiver_id="p2",
                 msg_type="DONE",
                 body="Here is the completed work",

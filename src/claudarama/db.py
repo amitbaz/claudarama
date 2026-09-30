@@ -1,6 +1,8 @@
 import os
+import secrets
 import sqlite3
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -35,6 +37,14 @@ CREATE TABLE IF NOT EXISTS messages (
     thread TEXT,
     body TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tokens (
+    token TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,  -- 'turn', 'owner' or 'session'
+    person_id TEXT,
+    turn_id TEXT,
+    ended_at TIMESTAMP   -- set when a 'session' token's session exits
 );
 
 CREATE TABLE IF NOT EXISTS briefs (
@@ -242,3 +252,92 @@ def get_thread(db_path: Path, thread: str) -> list[dict]:
             (thread,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+@dataclass
+class Identity:
+    """Who a token speaks for. ``person_id`` is None for the owner."""
+
+    kind: str  # 'turn', 'owner' or 'session'
+    person_id: str | None = None
+    turn_id: str | None = None
+    ticket: str | None = None  # from the turn's thread, when it is a ticket thread
+
+    @property
+    def is_owner(self) -> bool:
+        return self.kind == "owner"
+
+
+def _new_token(db_path: Path, kind: str, person_id: str | None = None, turn_id: str | None = None) -> str:
+    token = secrets.token_urlsafe(32)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO tokens (token, kind, person_id, turn_id) VALUES (?, ?, ?, ?)",
+            (token, kind, person_id, turn_id),
+        )
+    return token
+
+
+def create_turn_token(db_path: Path, turn_id: str) -> str:
+    """Mint the secret for a turn. It stops working when the turn is done or failed."""
+    turn = get_turn(db_path, turn_id)
+    return _new_token(db_path, "turn", turn["person_id"], turn_id)
+
+
+def get_owner_token(db_path: Path) -> str:
+    """Return the owner token, creating it on first use."""
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT token FROM tokens WHERE kind = 'owner'").fetchone()
+    return row[0] if row else _new_token(db_path, "owner")
+
+
+def start_session(db_path: Path, person_id: str) -> str:
+    """Record a ``talk`` session as open and return its token."""
+    return _new_token(db_path, "session", person_id)
+
+
+def end_session(db_path: Path, token: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE tokens SET ended_at = CURRENT_TIMESTAMP WHERE token = ? AND kind = 'session'",
+            (token,),
+        )
+
+
+def has_open_session(db_path: Path, person_id: str) -> bool:
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT 1 FROM tokens WHERE kind = 'session' AND person_id = ? AND ended_at IS NULL",
+            (person_id,),
+        ).fetchone() is not None
+
+
+def resolve_token(db_path: Path, token: str | None) -> Identity | None:
+    """Identity for a live token; None when missing, unknown or dead."""
+    if not token:
+        return None
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM tokens WHERE token = ?", (token,)).fetchone()
+        if row is None:
+            return None
+        if row["kind"] == "owner":
+            return Identity("owner")
+        if row["kind"] == "session":
+            live = row["ended_at"] is None
+            return Identity("session", row["person_id"]) if live else None
+        turn = conn.execute(
+            "SELECT status, thread FROM turns WHERE id = ?", (row["turn_id"],)
+        ).fetchone()
+    if turn is None or turn["status"] != "running":
+        return None
+    thread = turn["thread"] or ""
+    ticket = thread.removeprefix("ticket:") if thread.startswith("ticket:") else None
+    return Identity("turn", row["person_id"], row["turn_id"], ticket)
+
+
+def get_person_by_name(db_path: Path, name: str) -> dict | None:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM people WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None

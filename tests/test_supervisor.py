@@ -346,7 +346,7 @@ class TestBuildLaunch:
 
         assert "Test Co" in launch.brief
         assert "feat/x" in launch.brief
-        assert launch.cmd == [
-            "claude", "-p", launch.brief, "--output-format", "stream-json", "--model", "opus",
-        ]
+        assert launch.cmd[:5] == ["claude", "-p", launch.brief, "--output-format", "stream-json"]
+        assert launch.cmd[7:] == ["--model", "opus"]
+        assert launch.cmd[5] == "--mcp-config"
         assert launch.env is None  # inherit; later gates tickets fill this in

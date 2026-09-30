@@ -87,3 +87,82 @@ def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+
+
+def queue_turn(db_path: Path, person_id: str) -> str:
+    """Create a new turn with status 'queued'. Returns the turn ID."""
+    import uuid
+
+    turn_id = str(uuid.uuid4())
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO turns (id, person_id, status) VALUES (?, ?, 'queued')",
+            (turn_id, person_id),
+        )
+    return turn_id
+
+
+def get_queued_turns(db_path: Path) -> list[dict]:
+    """Return all turns with status 'queued', oldest first."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT t.id, t.person_id, p.role FROM turns t "
+            "JOIN people p ON t.person_id = p.id "
+            "WHERE t.status = 'queued' ORDER BY t.started_at ASC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_turn(db_path: Path, turn_id: str) -> dict | None:
+    """Return a turn row as a dict, or None if not found."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT t.id, t.person_id, t.status, p.role "
+            "FROM turns t JOIN people p ON t.person_id = p.id "
+            "WHERE t.id = ?",
+            (turn_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def _set_turn_status(db_path: Path, turn_id: str, status: str) -> None:
+    """Set a turn's status and, for terminal states, set ended_at."""
+    terminal = {"done", "failed"}
+    with sqlite3.connect(db_path) as conn:
+        if status in terminal:
+            conn.execute(
+                "UPDATE turns SET status = ?, ended_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, turn_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE turns SET status = ? WHERE id = ?",
+                (status, turn_id),
+            )
+
+
+def mark_turn_running(db_path: Path, turn_id: str) -> None:
+    """Mark a turn as running."""
+    _set_turn_status(db_path, turn_id, "running")
+
+
+def mark_turn_done(db_path: Path, turn_id: str) -> None:
+    """Mark a turn as done and set ended_at."""
+    _set_turn_status(db_path, turn_id, "done")
+
+
+def mark_turn_failed(db_path: Path, turn_id: str) -> None:
+    """Mark a turn as failed and set ended_at."""
+    _set_turn_status(db_path, turn_id, "failed")
+
+
+def save_brief(db_path: Path, turn_id: str, content: str) -> None:
+    """Save the assembled brief for a turn."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO briefs (turn_id, content) VALUES (?, ?)",
+            (turn_id, content),
+        )
+

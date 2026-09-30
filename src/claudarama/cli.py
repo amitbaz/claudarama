@@ -22,6 +22,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="Initialize a default .claudarama pack in the current directory",
     )
 
+    # eval subcommand
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Run scenario evaluations against mock LLM or stub",
+    )
+    eval_parser.add_argument(
+        "paths",
+        nargs="*",
+        help="Path(s) to scenario JSON files or directories containing scenarios",
+    )
+    eval_parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="Number of evaluation runs per scenario (requires majority to pass)",
+    )
+    eval_parser.add_argument(
+        "--against",
+        type=str,
+        default=None,
+        help="Git reference (branch, tag, or commit) to compare execution against",
+    )
+    eval_parser.add_argument(
+        "--mock-response",
+        type=str,
+        default=None,
+        help="Mock response text for offline execution/testing",
+    )
+
     return parser
 
 
@@ -37,6 +66,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         success, message = init_pack()
         print(message)
         return 0 if success else 1
+
+    if args.command == "eval":
+        from claudarama.scenario.cli import run_eval_cli
+
+        return run_eval_cli(
+            paths=args.paths,
+            runs=args.runs,
+            against=args.against,
+            mock_response=args.mock_response,
+        )
 
     parser.print_help()
     return 0

@@ -327,3 +327,55 @@ class TestSendMCPTool:
 
         brief = build_brief(pack_dir=pack, role="cpo", thread=thread)
         assert "Here is the completed work" in brief
+
+    def test_send_tool_fyi_ack_do_not_queue_turn(self, tmp_path):
+        from claudarama.daemon import make_send_tool
+        
+        db_path = _setup_db(tmp_path)
+        sender_turn_id = queue_turn(db_path, person_id="p1")
+        send = make_send_tool(db_path)
+        
+        result = asyncio.run(
+            send(
+                identity=Identity("turn", "p1", sender_turn_id),
+                receiver_id="p2",
+                msg_type="FYI",
+                body="Just letting you know",
+                ticket="T-1",
+            )
+        )
+        assert result.get("new_turn_id") is None
+        
+        with _connect(db_path) as conn:
+            queued = conn.execute("SELECT COUNT(*) FROM turns WHERE person_id = 'p2'").fetchone()[0]
+        assert queued == 0
+
+    def test_send_tool_batching_reuses_queued_turn(self, tmp_path):
+        from claudarama.daemon import make_send_tool
+        
+        db_path = _setup_db(tmp_path)
+        sender_turn_id = queue_turn(db_path, person_id="p1")
+        send = make_send_tool(db_path)
+        
+        res1 = asyncio.run(
+            send(
+                identity=Identity("owner"),
+                receiver_id="p2",
+                msg_type="QUESTION",
+                body="First?",
+                ticket="T-1",
+            )
+        )
+        t1 = res1["new_turn_id"]
+        
+        res2 = asyncio.run(
+            send(
+                identity=Identity("owner"),
+                receiver_id="p2",
+                msg_type="DONE",
+                body="Second",
+                ticket="T-1",
+            )
+        )
+        t2 = res2["new_turn_id"]
+        assert t1 == t2

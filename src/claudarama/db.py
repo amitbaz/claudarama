@@ -157,6 +157,7 @@ def queue_turn(
     model: str | None = None,
     branch: str | None = None,
     kind: str = "work",
+    delay_minutes: float = 0,
 ) -> str:
     """Create a new turn with status 'queued'. Returns the turn ID.
 
@@ -167,12 +168,21 @@ def queue_turn(
     rather than duplicating its content here.
     """
     import uuid
-
-    turn_id = str(uuid.uuid4())
+    
     with sqlite3.connect(db_path) as conn:
+        if thread and kind == "work":
+            row = conn.execute(
+                "SELECT id FROM turns WHERE person_id = ? AND thread = ? AND status = 'queued'",
+                (person_id, thread)
+            ).fetchone()
+            if row:
+                return row[0]
+
+        turn_id = str(uuid.uuid4())
+        delay_mod = f"+{delay_minutes} minutes" if delay_minutes else "+0 minutes"
         conn.execute(
-            "INSERT INTO turns (id, person_id, status, thread, model, branch, kind) "
-            "VALUES (?, ?, 'queued', ?, ?, ?, ?)",
+            "INSERT INTO turns (id, person_id, status, thread, model, branch, kind, started_at) "
+            f"VALUES (?, ?, 'queued', ?, ?, ?, ?, datetime('now', '{delay_mod}'))",
             (turn_id, person_id, thread, model, branch, kind),
         )
     return turn_id
@@ -186,6 +196,7 @@ def get_queued_turns(db_path: Path) -> list[dict]:
             "SELECT t.id, t.person_id, p.role FROM turns t "
             "JOIN people p ON t.person_id = p.id "
             "WHERE t.status = 'queued' "
+            "  AND t.started_at <= CURRENT_TIMESTAMP "
             "  AND NOT EXISTS (SELECT 1 FROM tokens WHERE kind = 'session' AND person_id = t.person_id AND ended_at IS NULL) "
             "  AND NOT EXISTS (SELECT 1 FROM turns WHERE status = 'running' AND person_id = t.person_id) "
             "ORDER BY t.started_at ASC"

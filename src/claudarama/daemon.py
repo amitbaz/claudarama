@@ -80,8 +80,19 @@ def make_send_tool(db_path: Path) -> Callable:
         )
         if identity.turn_id:
             mark_turn_done(db_path, identity.turn_id)
-        new_turn_id = queue_turn(db_path, person_id=receiver_id, thread=thread)
-        return {"ok": True, "new_turn_id": new_turn_id}
+
+        if msg_type in ("DONE", "BLOCKED", "QUESTION"):
+            from claudarama.supervisor import load_org_settings
+            settings = load_org_settings(db_path.parent)
+            new_turn_id = queue_turn(
+                db_path, 
+                person_id=receiver_id, 
+                thread=thread, 
+                delay_minutes=settings.batch_window_minutes
+            )
+            return {"ok": True, "new_turn_id": new_turn_id}
+            
+        return {"ok": True, "new_turn_id": None}
 
     return send
 

@@ -303,7 +303,7 @@ def get_turn(db_path: Path, turn_id: str) -> dict | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT t.id, t.person_id, t.status, t.thread, t.model, t.branch, t.kind, t.error, p.role "
+            "SELECT t.id, t.person_id, t.status, t.thread, t.model, t.branch, t.kind, t.refusal, t.error, p.role "
             "FROM turns t JOIN people p ON t.person_id = p.id "
             "WHERE t.id = ?",
             (turn_id,),
@@ -384,6 +384,14 @@ def grant_mandate(db_path: Path, mandate_id: str) -> None:
     """Record the CEO's grant of a mandate. Granting twice is harmless."""
     with sqlite3.connect(db_path) as conn:
         conn.execute("INSERT OR IGNORE INTO mandates (id) VALUES (?)", (mandate_id,))
+
+
+def mandate_states(db_path: Path) -> list[dict]:
+    """Every mandate with its status and whether it waits on the CEO, in the order they were granted."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT id, status, blocked_on_ceo FROM mandates ORDER BY granted_at, rowid").fetchall()
+    return [dict(r) for r in rows]
 
 
 def submit_diagnosis(db_path: Path, mandate_id: str, diagnosis_path: str) -> None:

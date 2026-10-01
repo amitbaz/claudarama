@@ -1,0 +1,75 @@
+{
+  "name": "loop",
+  "role": "researcher",
+  "description": "One Mandate walks through a real office, from its grant to CLOSED. Only claude, gh and the CEO's answers are stand-ins.",
+  "prompt": "The CEO grants one Mandate and answers each gate until the Mandate is CLOSED.",
+  "steps": [
+    {"type": "ceo_action", "calls": [
+      {"tool": "grant", "args": {"mandate": "Speed up checkout"}},
+      {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "Speed up checkout"}}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "1", "calls": [
+        {"run": ["git", "rev-parse", "--is-inside-work-tree"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "DISCUSS"},
+    {"type": "ceo_action", "input": "NO"},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "1", "calls": [
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout-2.md"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "pm", "ticket": "1", "calls": [
+        {"run": ["gh", "issue", "close", "1"]},
+        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": ["2"]}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "fullstack-engineer", "ticket": "2", "calls": [
+        {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #2"]},
+        {"tool": "record_ship_check", "args": {"pull_request": 101, "head_commit": "commit-101", "verdict": "SHIP", "diagnosis_path": "company/diagnoses/checkout-2.md", "command": "pytest"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "2", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 101, "head_commit": "commit-101", "verdict": "SHIP", "diagnosis_path": "company/diagnoses/checkout-2.md", "command": "pytest"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "2", "calls": [
+        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": "company/retros/checkout.md"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"}
+  ],
+  "checks": {
+    "includes": [
+      "CEO calls grant .* -> \\{\"ok\": true",
+      "Mandate 'Speed up checkout': INVESTIGATING\\n",
+      "\\| You are the researcher \\(Amy\\)\\.",
+      "\\| Working on ticket: 1",
+      "researcher runs git rev-parse --is-inside-work-tree -> true",
+      "researcher calls submit_diagnosis .* -> \\{\"ok\": true",
+      "researcher's turn: done\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO",
+      "Diagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout.md\\nCEO answers DISCUSS\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO",
+      "checkout.md\\nCEO answers NO\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "checkout-2.md\\nCEO answers YES\\nMandate 'Speed up checkout': PLANNING\\n",
+      "pm calls submit_epic .* -> \\{\"ok\": true",
+      "pm's turn: done\\nMandate 'Speed up checkout': EXECUTING, waiting for the CEO",
+      "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2\\nCEO answers YES\\nMandate 'Speed up checkout': EXECUTING\\n",
+      "fullstack-engineer runs gh pr create .* -> https://github.com/office/project/pull/101",
+      "fullstack-engineer calls record_ship_check .* -> REFUSED: .* only from the engineering-lead",
+      "engineering-lead calls record_ship_check .* -> \\{\"ok\": true",
+      "PR gate: #101 'Faster checkout' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers YES\\nMandate 'Speed up checkout': LEARNING\\n",
+      "engineering-lead calls submit_lessons .* -> \\{\"ok\": true",
+      "engineering-lead's turn: done\\nMandate 'Speed up checkout': CLOSED, waiting for the CEO",
+      "Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers YES\\nMandate 'Speed up checkout': CLOSED\\n"
+    ]
+  }
+}

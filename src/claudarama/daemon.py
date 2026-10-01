@@ -11,6 +11,7 @@ from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.session import DB_ENV, TOKEN_ENV
 from claudarama.supervisor import Supervisor
+from claudarama.worktrees import remove_finished_worktrees
 
 from claudarama.db import (
     CAST,
@@ -250,8 +251,9 @@ def main() -> None:
     db_path = Path(db) if db else get_office_db_path()
     token = os.environ.get(TOKEN_ENV)
 
-    def reconcile() -> None:  # catches hand-moved issues
+    def reconcile() -> None:  # catches hand-moved issues, and pull requests merged or closed outside the office
         while True:
+            remove_finished_worktrees(get_project_root(), db_path, run_gh)  # at open, then every minute
             time.sleep(60)
             sync(db_path, run_gh)
 

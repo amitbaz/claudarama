@@ -1,6 +1,5 @@
 """The record_ship_check tool: a Ship-check verdict tied to its Diagnosis (issue #72)."""
 import sqlite3
-from types import SimpleNamespace
 
 import pytest
 
@@ -29,10 +28,8 @@ def _token(db, caller):
 
 
 def _ship_check(db, caller="engineering-lead", **args):
-    ctx = SimpleNamespace(request_context=SimpleNamespace(
-        request=SimpleNamespace(path_params={"token": _token(db, caller)})))
-    tool = create_mcp_server(db_path=db)._tool_manager.get_tool("record_ship_check")
-    return tool.fn(ctx=ctx, **args)
+    tool = create_mcp_server(db_path=db, token=_token(db, caller))._tool_manager.get_tool("record_ship_check")
+    return tool.fn(**args)
 
 
 def _rows(db):

@@ -67,10 +67,10 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE TABLE IF NOT EXISTS tokens (
     token TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,  -- 'turn', 'owner' or 'session'
+    kind TEXT NOT NULL,  -- 'turn' or 'owner'
     person_id TEXT,
     turn_id TEXT,
-    ended_at TIMESTAMP   -- set when a 'session' token's session exits
+    ended_at TIMESTAMP   -- unused since `talk` was removed; kept so existing databases still match
 );
 
 CREATE TABLE IF NOT EXISTS mandates (
@@ -275,7 +275,6 @@ def get_queued_turns(db_path: Path) -> list[dict]:
             "JOIN people p ON t.person_id = p.id "
             "WHERE t.status = 'queued' "
             "  AND t.started_at <= CURRENT_TIMESTAMP "
-            "  AND NOT EXISTS (SELECT 1 FROM tokens WHERE kind = 'session' AND person_id = t.person_id AND ended_at IS NULL) "
             "  AND NOT EXISTS (SELECT 1 FROM turns WHERE status = 'running' AND person_id = t.person_id) "
             "  AND NOT EXISTS (SELECT 1 FROM tickets k JOIN mandates m ON m.id = k.mandate_id "
             "                  WHERE m.blocked_on_ceo = 1 AND t.thread = 'ticket:' || k.id) "
@@ -606,7 +605,7 @@ def get_thread(db_path: Path, thread: str) -> list[dict]:
 class Identity:
     """Who a token speaks for. ``person_id`` is None for the owner."""
 
-    kind: str  # 'turn', 'owner' or 'session'
+    kind: str  # 'turn' or 'owner'
     person_id: str | None = None
     turn_id: str | None = None
     ticket: str | None = None  # from the turn's thread, when it is a ticket thread
@@ -639,27 +638,6 @@ def get_owner_token(db_path: Path) -> str:
     return row[0] if row else _new_token(db_path, "owner")
 
 
-def start_session(db_path: Path, person_id: str) -> str:
-    """Record a ``talk`` session as open and return its token."""
-    return _new_token(db_path, "session", person_id)
-
-
-def end_session(db_path: Path, token: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "UPDATE tokens SET ended_at = CURRENT_TIMESTAMP WHERE token = ? AND kind = 'session'",
-            (token,),
-        )
-
-
-def has_open_session(db_path: Path, person_id: str) -> bool:
-    with sqlite3.connect(db_path) as conn:
-        return conn.execute(
-            "SELECT 1 FROM tokens WHERE kind = 'session' AND person_id = ? AND ended_at IS NULL",
-            (person_id,),
-        ).fetchone() is not None
-
-
 def resolve_token(db_path: Path, token: str | None) -> Identity | None:
     """Identity for a live token; None when missing, unknown or dead."""
     if not token:
@@ -671,9 +649,6 @@ def resolve_token(db_path: Path, token: str | None) -> Identity | None:
             return None
         if row["kind"] == "owner":
             return Identity("owner")
-        if row["kind"] == "session":
-            live = row["ended_at"] is None
-            return Identity("session", row["person_id"]) if live else None
         turn = conn.execute(
             "SELECT status, thread FROM turns WHERE id = ?", (row["turn_id"],)
         ).fetchone()
@@ -682,13 +657,6 @@ def resolve_token(db_path: Path, token: str | None) -> Identity | None:
     thread = turn["thread"] or ""
     ticket = thread.removeprefix("ticket:") if thread.startswith("ticket:") else None
     return Identity("turn", row["person_id"], row["turn_id"], ticket)
-
-
-def get_person_by_name(db_path: Path, name: str) -> dict | None:
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM people WHERE name = ?", (name,)).fetchone()
-    return dict(row) if row else None
 
 
 def get_person_by_role(db_path: Path, role: str) -> dict | None:

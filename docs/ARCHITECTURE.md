@@ -35,7 +35,6 @@ The heart of the office is a local background daemon that manages asynchronous a
 Communication operates primarily in the terminal.
 
 *   **The Assistant (`claudarama open`):** The CEO's interactive session. It batches reports and requests decisions on blocking gates.
-*   **Direct Conversations (`claudarama talk <name>`):** The CEO can open a direct session with any person. The server pauses that person's asynchronous turns until the session ends.
 *   **Push Notifications:** If the CEO is AFK and the office hits a blocking gate or finishes a mandate, the daemon triggers a native macOS push notification.
 
 ## 4. Gate Enforcement

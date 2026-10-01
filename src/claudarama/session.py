@@ -3,14 +3,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from claudarama.brief import build_brief
 from claudarama.db import (
     diagnosis_gates,
-    end_session,
     epic_gates,
     get_office_db_path,
     get_owner_token,
-    get_person_by_name,
     init_db,
     lesson_gates,
     mandates_of_tickets,
@@ -19,7 +16,6 @@ from claudarama.db import (
     resolve_lesson_gate,
     ship_checked,
     start_learning,
-    start_session,
     tickets_by_mandate,
 )
 from claudarama.mirror import Gh, run_gh
@@ -33,9 +29,18 @@ def _run_claude(cmd: list[str], claude_binary: str) -> int:
         return 1
 
 
-def mcp_config(host: str, port: int, token: str) -> str:
-    url = f"http://{host}:{port}/mcp/{token}"
-    return json.dumps({"mcpServers": {"claudarama": {"type": "http", "url": url}}})
+TOKEN_ENV = "CLAUDARAMA_TOKEN"  # the secret that names the server process's caller
+DB_ENV = "CLAUDARAMA_DB"  # the office's database, shared by every server process
+
+
+def mcp_config(db_path: Path, token: str) -> str:
+    """Config that has Claude Code start the office server as its own process, speaking for *token*."""
+    server = {
+        "command": sys.executable,
+        "args": ["-m", "claudarama.daemon"],
+        "env": {TOKEN_ENV: token, DB_ENV: str(Path(db_path).resolve())},  # a turn runs in another directory
+    }
+    return json.dumps({"mcpServers": {"claudarama": server}})
 
 
 def _review(gates: list[dict], describe, resolve, ask) -> bool:
@@ -130,13 +135,8 @@ def review_lesson_gates(db_path: Path, ask=input) -> bool:
     )
 
 
-def open_ceo_session(
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    claude_binary: str = "claude",
-    db_path: Path | None = None,
-) -> int:
-    """Launch an interactive Claude session holding the owner token."""
+def open_ceo_session(claude_binary: str = "claude", db_path: Path | None = None) -> int:
+    """Launch the CEO's Session with the office server attached, holding the owner token."""
     db_path = db_path or get_office_db_path()
     init_db(db_path)
     if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
@@ -145,33 +145,5 @@ def open_ceo_session(
         review_pr_gates(db_path)
         advance_to_learning(db_path)
         review_lesson_gates(db_path)
-    config = mcp_config(host, port, get_owner_token(db_path))
+    config = mcp_config(db_path, get_owner_token(db_path))
     return _run_claude([claude_binary, "--mcp-config", config], claude_binary)
-
-
-def talk_to_person(
-    name: str,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    claude_binary: str = "claude",
-    db_path: Path | None = None,
-    pack_dir: Path | None = None,
-) -> int:
-    """Interactive session with *name*: their token and brief; recorded open until it exits."""
-    db_path = db_path or get_office_db_path()
-    init_db(db_path)
-    person = get_person_by_name(db_path, name)
-    if person is None:
-        print(f"Error: no person named '{name}'.", file=sys.stderr)
-        return 1
-    brief = build_brief(pack_dir or Path.cwd() / ".claudarama", person["role"])
-    token = start_session(db_path, person["id"])
-    cmd = [
-        claude_binary,
-        "--mcp-config", mcp_config(host, port, token),
-        "--append-system-prompt", brief,
-    ]
-    try:
-        return _run_claude(cmd, claude_binary)
-    finally:
-        end_session(db_path, token)

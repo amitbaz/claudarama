@@ -9,8 +9,8 @@ from mcp.server.fastmcp import FastMCP
 
 from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
-from claudarama.session import DB_ENV, TOKEN_ENV
-from claudarama.supervisor import Supervisor
+from claudarama.session import DB_ENV, TOKEN_ENV, advance_to_learning, open_gates, watch_gates
+from claudarama.supervisor import Supervisor, notify_ceo
 
 from claudarama.db import (
     CAST,
@@ -61,7 +61,8 @@ def make_send_tool(db_path: Path) -> Callable:
     ) -> dict:
         """Send a message from the caller to receiver and end the caller's turn.
 
-        The receiver is addressed by Role (*receiver_id*); an unknown Role is refused.
+        The receiver is addressed by Role (*receiver_id*); an unknown Role is refused. The CEO is
+        addressed as ``ceo``: no turn is queued, and the message is shown when the office is next opened.
 
         The sender is the caller's identity, never an argument. The owner
         sends as ``ceo`` and has no turn to end.
@@ -79,9 +80,9 @@ def make_send_tool(db_path: Path) -> Callable:
         """
         thread = thread_key(ticket, topic)  # refuse before touching the DB
         receiver = get_person_by_role(db_path, receiver_id)
-        if receiver is None:
+        if receiver is None and receiver_id != "ceo":
             raise ValueError(
-                f"unknown Role {receiver_id!r}; the Roles are: {', '.join(map(shown, CAST))}"
+                f"unknown Role {receiver_id!r}; the Roles are: {', '.join(map(shown, CAST))}. The CEO is 'ceo'"
             )
         store_message(
             db_path,
@@ -95,7 +96,7 @@ def make_send_tool(db_path: Path) -> Callable:
         if identity.turn_id:
             mark_turn_done(db_path, identity.turn_id)
 
-        if msg_type in ("DONE", "BLOCKED", "QUESTION"):
+        if receiver and msg_type in ("DONE", "BLOCKED", "QUESTION"):
             from claudarama.supervisor import load_org_settings
             settings = load_org_settings(db_path.parent)
             new_turn_id = queue_turn(
@@ -158,7 +159,7 @@ def create_mcp_server(
         ticket: str | None = None,
         topic: str | None = None,
     ) -> dict:
-        """Send a message to a Role (receiver_id) and end your turn. The sender is taken from your token."""
+        """Send a message to a Role (receiver_id), or to the CEO as "ceo", and end your turn. The sender is taken from your token."""
         identity = authenticate(db_path, token)
         return await send(identity, receiver_id, msg_type, body, ticket, topic)
 
@@ -181,6 +182,30 @@ def create_mcp_server(
         if gh:
             sync(db_path, gh)
         return {"ok": True, "mandate": mandate}
+
+    @server.tool()
+    def list_gates() -> dict:
+        """The gates waiting for the CEO's answer, in the order of the loop. Owner token only."""
+        authenticate(db_path, token, owner_only=True)
+        return {"gates": [{"gate": g["gate"], "shows": g["shows"]} for g in open_gates(db_path, gh)]}
+
+    @server.tool()
+    def answer_gate(gate: str, answer: str) -> dict:
+        """Give the CEO's answer at a gate named by `list_gates`: YES, NO or DISCUSS. Owner token only.
+
+        DISCUSS leaves the gate open: talk it through with the CEO, then call again with their YES or NO."""
+        authenticate(db_path, token, owner_only=True)
+        answer = answer.strip().upper()
+        if answer not in ("YES", "NO", "DISCUSS"):
+            raise ValueError(f"answer {answer!r} is not YES, NO or DISCUSS")
+        waiting = {g["gate"]: g for g in open_gates(db_path, gh)}
+        if gate not in waiting:
+            raise ValueError(f"no open gate {gate!r}; the open gates are: {', '.join(waiting) or 'none'}")
+        if answer != "DISCUSS":
+            waiting[gate]["resolve"](answer == "YES")
+            if gate.startswith("pr:"):
+                advance_to_learning(db_path, gh)  # a merged PR may have closed a mandate's last ticket
+        return {"ok": True, "gate": gate, "answer": answer, "open": answer == "DISCUSS"}
 
     @server.tool(name="submit_diagnosis")
     def submit_diagnosis_tool(mandate: str, diagnosis_path: str) -> dict:
@@ -256,9 +281,14 @@ def main() -> None:
 
     offices: list[Supervisor] = []
 
+    def announce() -> None:  # the CEO learns of a gate without opening the office to look
+        for gate in watch_gates(db_path):
+            notify_ceo(gate)
+
     def run_office() -> None:
         """The CEO's Session runs the office: transcripts stay with the office's state, outside the project."""
         threading.Thread(target=reconcile, daemon=True).start()
+        threading.Thread(target=announce, daemon=True).start()
         office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns")
         offices.append(office)
         threading.Thread(target=office.run, daemon=True).start()

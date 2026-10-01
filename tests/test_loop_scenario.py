@@ -71,6 +71,25 @@ def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
     assert result.passed, _why(result)
 
 
+def test_a_turn_can_neither_list_nor_answer_a_gate():
+    granted = {"type": "ceo_action", "calls": [
+        {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "M"}},
+    ]}
+    approves_its_own = {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": [
+        {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "d.md"}},
+        {"tool": "list_gates"},
+        {"tool": "answer_gate", "args": {"gate": "diagnosis:M", "answer": "YES"}},
+    ]}]}
+
+    result = _walk([granted, approves_its_own], includes=[
+        "researcher calls list_gates .* -> REFUSED: .*owner-only",
+        "researcher calls answer_gate .* -> REFUSED: .*owner-only",
+        "researcher's turn: done\\nMandate 'M': PLANNING, waiting for the CEO",
+    ])
+
+    assert result.passed, _why(result)
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),

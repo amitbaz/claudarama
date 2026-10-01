@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS messages (
     ticket TEXT,
     thread TEXT,
     body TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    shown INTEGER NOT NULL DEFAULT 0  -- a message to the CEO, once an open has shown it
 );
 
 CREATE TABLE IF NOT EXISTS tokens (
@@ -219,6 +220,8 @@ def init_db(db_path: Path) -> None:
             conn.execute(
                 "UPDATE messages SET thread = 'ticket:' || ticket WHERE ticket IS NOT NULL"
             )
+        if "shown" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN shown INTEGER NOT NULL DEFAULT 0")
         cols = {r[1] for r in conn.execute("PRAGMA table_info(checkpoints)")}
         if not cols:
             conn.executescript(
@@ -505,6 +508,13 @@ def ship_checked(db_path: Path, pull_request: int, head_commit: str) -> bool:
             (pull_request, head_commit)).fetchone() is not None
 
 
+def shipped(db_path: Path) -> list[tuple[int, str]]:
+    """Each pull request and head commit with a SHIP verdict, oldest first."""
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT pull_request, head_commit FROM verdicts WHERE verdict = 'SHIP' ORDER BY rowid").fetchall()
+
+
 def start_learning(db_path: Path, mandate_id: str) -> None:
     """Move an unblocked EXECUTING mandate to LEARNING: its work is merged."""
     with sqlite3.connect(db_path) as conn:
@@ -615,6 +625,23 @@ def store_message(
             (msg_id, sender, receiver, msg_type, ticket, thread, body),
         )
     return msg_id
+
+
+def ceo_messages(db_path: Path) -> list[dict]:
+    """The messages addressed to the CEO that no open has shown yet, oldest first."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, sender, msg_type, thread, body FROM messages "
+            "WHERE receiver = 'ceo' AND shown = 0 ORDER BY created_at, rowid"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_shown(db_path: Path, messages: list[dict]) -> None:
+    """Record that an open showed these messages to the CEO."""
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany("UPDATE messages SET shown = 1 WHERE id = ?", [(m["id"],) for m in messages])
 
 
 def get_thread(db_path: Path, thread: str) -> list[dict]:

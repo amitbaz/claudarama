@@ -38,8 +38,8 @@ The office has no daemon and nothing to start first (ADR-0003). The office serve
 
 Communication operates primarily in the terminal.
 
-*   **The Assistant (`claudarama open`):** The CEO's Session. It batches reports and requests decisions on blocking gates.
-*   **Push Notifications:** If the CEO is AFK and the office hits a blocking gate or finishes a mandate, the Session's server triggers a native macOS push notification. With no Session open the office is paused, so there is nothing to notify.
+*   **The Assistant (`claudarama open`):** The CEO's Session. At open it shows, together, the messages addressed to the CEO since the last open. It lists the gates that are waiting and passes the CEO's answer to the office with the owner-only `list_gates` and `answer_gate` tools, so YES, NO and DISCUSS are all resolved inside the Session.
+*   **Notifications:** When a gate opens, the Session's server sends a macOS notification. A PR gate counts from the SHIP verdict on its head commit, which is when the office starts to wait on the CEO. The Assistant also keeps a watcher (`claudarama watch`) running in the background of the Session: it ends when a gate opens, which wakes the Assistant, and the Assistant sends Claude Code's own push notification, which reaches the phone when Remote Control is connected. With no Session open the office is paused, so there is nothing to notify.
 
 ## 4. Gate Enforcement
 

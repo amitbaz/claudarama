@@ -25,15 +25,15 @@ A kind of role: a position in the org chart, such as CTO or PM.
 A kind of role: a staff profile (`agents/*.md`), such as fullstack-engineer or designer.
 
 **Person**:
-A named member with one role, a level, a manager and a record.
+A named member holding one Role. Every Role has exactly one Person, present from the office's first day.
 _Avoid_: Agent, bot, AI
 
 **Turn**:
-One headless run the server starts for one person on one piece of work. Continuity comes from the brief, the person's record and the ticket's working note.
+One headless run the server starts for one person on one piece of work. Continuity comes from the brief and the ticket's working note.
 _Avoid_: Run, prompt
 
 **Session**:
-An interactive conversation the CEO opens with a person (`open` for the Assistant, `talk` for anyone else), seeded with the same brief a turn would get. A person never has a turn and a session at the same time.
+The CEO's interactive conversation with the Assistant, opened from the terminal or from inside Claude Code. The office works only while a Session is open; closing it pauses the office.
 
 **Thread**:
 The messages about one ticket, or about one topic when there is no ticket. A turn's brief loads only the thread that woke it.
@@ -42,7 +42,7 @@ The messages about one ticket, or about one topic when there is no ticket. A tur
 A short note (at most 500 characters) a person leaves at the end of a turn: the files involved, what they found, the next step. The next turn on that ticket loads it.
 
 **Mandate**:
-A body of work toward a key result, which breaks into epics and tickets. Proposed by a head; the office works on it only once the CEO grants it.
+A body of work the office takes on for the CEO, which breaks into an Epic of tickets. The office works on it only once the CEO grants it.
 
 **Grant**:
 The CEO's approval of one mandate. Only turns for tickets under a granted mandate (replies included), rituals and the Assistant may start; other work needs a ticket first.
@@ -57,10 +57,10 @@ An action only the CEO may take or approve.
 The investigators' written finding on a granted mandate. Submitting it moves the mandate from INVESTIGATING to PLANNING and pauses it at the Diagnosis gate.
 
 **Diagnosis gate**:
-A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis. YES unblocks the mandate to plan, staying PLANNING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
+A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis. YES merges the Diagnosis and unblocks the mandate to plan, staying PLANNING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
 **Epic**:
-A set of drafted tickets for a PLANNING mandate, tied to it in the database and marked `drafted` until the CEO approves; there is no epics table. Tickets that already exist cannot be drafted. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.
+A set of drafted tickets for a PLANNING mandate, each naming the Role that will do it, tied to it in the database and marked `drafted` until the CEO approves; there is no epics table. Tickets that already exist cannot be drafted. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.
 
 **Epic gate**:
 A Gate where the CEO answers YES, NO or DISCUSS on an Epic, shown with its tickets. YES unblocks the mandate so its tickets can start; NO discards the drafted tickets and returns it to PLANNING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
@@ -71,11 +71,14 @@ The Engineering Lead's independent verification of a Pull Request, logged with `
 **PR gate**:
 A Gate where the CEO answers YES, NO or DISCUSS on an open Pull Request that closes an office ticket. YES merges it, but only when a SHIP verdict is recorded for its head commit; otherwise the merge is refused. NO closes the PR; DISCUSS leaves it. When every ticket of an EXECUTING mandate is closed on GitHub, the mandate moves to LEARNING.
 
+**Retro**:
+The written look back on a LEARNING mandate, which proposes Lessons. Submitting it moves the mandate to CLOSED and pauses it at the Lesson gate.
+
 **Lesson**:
-The finding a person proposes for a LEARNING mandate, stored as a Markdown file. Submitting it with `submit_lessons` moves the mandate to CLOSED and pauses it at the Lesson gate.
+One short rule a Retro proposes, scoped to the whole company or to one Role. Once the CEO approves it at the Lesson gate, every brief in its scope loads it.
 
 **Lesson gate**:
-A Gate where the CEO answers YES, NO or DISCUSS on a Lesson. YES unblocks the mandate, finally CLOSED; NO returns it to LEARNING; DISCUSS leaves it paused (`blocked_on_ceo`).
+A Gate where the CEO answers YES, NO or DISCUSS on the Lessons a Retro proposes. YES merges the Retro, adopts its Lessons and unblocks the mandate, finally CLOSED; NO returns it to LEARNING; DISCUSS leaves it paused (`blocked_on_ceo`).
 
 **Gate hook**:
 The PreToolUse hook that checks every tool call of a turn against the turn's allowlist and denies what is not on it. It enforces the allowlist; it is not itself a Gate.

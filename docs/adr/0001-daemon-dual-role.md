@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0003
+---
+
 # Daemon Dual-Role Architecture
 
 The office daemon serves two distinct roles simultaneously: it acts as a Supervisor that spawns and monitors `claude -p` turns, and as an MCP Server that those same turns connect back to.

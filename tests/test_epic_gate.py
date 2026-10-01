@@ -6,7 +6,8 @@ import pytest
 
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
-    get_owner_token, get_queued_turns, grant_mandate, init_db, queue_turn, submit_diagnosis,
+    epic_gates, get_owner_token, get_queued_turns, grant_mandate, init_db, queue_turn,
+    register_ticket, submit_diagnosis,
     resolve_diagnosis_gate,
 )
 from claudarama.session import review_epic_gates
@@ -78,3 +79,23 @@ def test_discuss_stays_paused_and_no_discards_the_drafted_tickets(db):
     review_epic_gates(db, ask=lambda _: next(answers))
     assert _state(db) == ("PLANNING", 0)
     assert _tickets(db) == []
+
+
+def test_epic_cannot_take_an_existing_ticket(db):
+    register_ticket(db, "T1", "M1")
+    with pytest.raises(ValueError, match="already exists"):
+        _submit(db)
+    assert _state(db) == ("PLANNING", 0)  # refused whole: nothing paused
+
+
+def test_no_keeps_tickets_that_predate_the_epic(db):
+    register_ticket(db, "OLD", "M1")
+    _submit(db)
+    review_epic_gates(db, ask=lambda _: "no")
+    assert _tickets(db) == ["OLD"]
+
+
+def test_epic_gate_lists_only_drafted_tickets(db):
+    register_ticket(db, "OLD", "M1")
+    _submit(db)
+    assert epic_gates(db) == [{"id": "M1", "tickets": ["T1", "T2"]}]

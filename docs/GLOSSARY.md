@@ -60,7 +60,7 @@ The investigators' written finding on a granted mandate. Submitting it moves the
 A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis. YES unblocks the mandate to plan, staying PLANNING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
 **Epic**:
-The drafted tickets of a PLANNING mandate, tied to it in the database; there is no epics table. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.
+A set of drafted tickets for a PLANNING mandate, tied to it in the database and marked `drafted` until the CEO approves; there is no epics table. Tickets that already exist cannot be drafted. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.
 
 **Epic gate**:
 A Gate where the CEO answers YES, NO or DISCUSS on an Epic, shown with its tickets. YES unblocks the mandate so its tickets can start; NO discards the drafted tickets and returns it to PLANNING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.

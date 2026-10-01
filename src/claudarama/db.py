@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     id TEXT PRIMARY KEY,
     mandate_id TEXT NOT NULL,
     hard INTEGER NOT NULL DEFAULT 0,
+    drafted INTEGER NOT NULL DEFAULT 0,  -- in an Epic awaiting the CEO's approval
     FOREIGN KEY(mandate_id) REFERENCES mandates(id)
 );
 
@@ -177,6 +178,8 @@ def init_db(db_path: Path) -> None:
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE mandates ADD COLUMN {col} {decl}")
+        if "drafted" not in {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}:
+            conn.execute("ALTER TABLE tickets ADD COLUMN drafted INTEGER NOT NULL DEFAULT 0")
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
         if "thread" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN thread TEXT")
@@ -387,11 +390,13 @@ def submit_epic(db_path: Path, mandate_id: str, tickets: list[str]) -> None:
         )
         if cur.rowcount == 0:
             raise ValueError(f"mandate {mandate_id!r} is not PLANNING and unblocked")
-        conn.executemany(
-            "INSERT INTO tickets (id, mandate_id) VALUES (?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET mandate_id = excluded.mandate_id",
-            [(t, mandate_id) for t in tickets],
-        )
+        try:
+            conn.executemany(
+                "INSERT INTO tickets (id, mandate_id, drafted) VALUES (?, ?, 1)",
+                [(t, mandate_id) for t in tickets],
+            )
+        except sqlite3.IntegrityError as e:  # the with-block rolls the mandate update back
+            raise ValueError("a ticket of the Epic already exists") from e
 
 
 def epic_gates(db_path: Path) -> list[dict]:
@@ -404,7 +409,7 @@ def epic_gates(db_path: Path) -> list[dict]:
         ).fetchall()
         return [
             {"id": r["id"], "tickets": [t[0] for t in conn.execute(
-                "SELECT id FROM tickets WHERE mandate_id = ? ORDER BY rowid", (r["id"],))]}
+                "SELECT id FROM tickets WHERE mandate_id = ? AND drafted = 1 ORDER BY rowid", (r["id"],))]}
             for r in rows
         ]
 
@@ -417,8 +422,11 @@ def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
             "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'EXECUTING'",
             ("EXECUTING" if approved else "PLANNING", mandate_id),
         )
-        if cur.rowcount and not approved:
-            conn.execute("DELETE FROM tickets WHERE mandate_id = ?", (mandate_id,))
+        if cur.rowcount:
+            if approved:
+                conn.execute("UPDATE tickets SET drafted = 0 WHERE mandate_id = ?", (mandate_id,))
+            else:
+                conn.execute("DELETE FROM tickets WHERE mandate_id = ? AND drafted = 1", (mandate_id,))
 
 
 def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False) -> None:

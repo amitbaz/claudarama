@@ -7,6 +7,7 @@ from typing import Callable
 
 from mcp.server.fastmcp import FastMCP
 
+from claudarama.documents import DIAGNOSES, RETROS, committed, document_path, missing_sections, open_pull_request
 from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.session import DB_ENV, TOKEN_ENV, advance_to_learning, follow_github, open_gates, watch_gates
@@ -20,7 +21,9 @@ from claudarama.db import (
     get_person_by_role,
     get_project_root,
     grant_mandate,
+    has_judged_cases,
     init_db,
+    investigation_tickets,
     mark_turn_done,
     queue_turn,
     record_challenge,
@@ -121,7 +124,8 @@ def create_mcp_server(
     """The office server for one caller: every tool call is made as the holder of *token*.
 
     With *gh*, grants and tickets mirror to GitHub. With *project* (the main checkout), an answer
-    at a gate removes the worktrees of the tickets whose pull requests are merged or closed. With *on_attach*, the server was started
+    at a gate removes the worktrees of the tickets whose pull requests are merged or closed, and a
+    submitted Diagnosis or Retro is read from its ticket's branch. With *on_attach*, the server was started
     with no token (the plugin declares it for every session): it creates nothing and refuses
     every call until ``attach`` makes it the owner's, then calls *on_attach*.
     """
@@ -179,13 +183,16 @@ def create_mcp_server(
 
     @server.tool()
     def grant(
-        mandate: str, ticket: str, investigator: str = "researcher", challenger: str = "engineering-lead"
+        mandate: str, ticket: str, investigator: str = "researcher", challenger: str = "engineering-lead",
+        judged_cases: str = "",
     ) -> dict:
         """Grant a mandate, naming its investigation ticket, its investigating Role, whose turn on
         that ticket is queued, and its challenging Role, a different Role that will try to refute
-        the Diagnosis before the CEO sees it. Owner token only."""
+        the Diagnosis before the CEO sees it. `judged_cases` are the CEO's own cases of what is right
+        and what is wrong, when the mandate has them: its Diagnosis must then report on them.
+        Owner token only."""
         authenticate(db_path, token, owner_only=True)
-        grant_mandate(db_path, mandate, ticket, investigator, challenger)
+        grant_mandate(db_path, mandate, ticket, investigator, challenger, judged_cases)
         if gh:
             sync(db_path, gh)
         return {"ok": True, "mandate": mandate, "ticket": ticket, "investigator": investigator, "challenger": challenger}
@@ -217,11 +224,34 @@ def create_mcp_server(
             advance_to_learning(db_path, gh)  # a merged PR may have closed a mandate's last ticket
         return {"ok": True, "gate": gate, "answer": answer, "open": answer == "DISCUSS"}
 
+    def submitted(mandate: str, path: str, directory: str, kind: str) -> tuple[str, str | None]:
+        """The path of a submitted Diagnosis or Retro, refused outside its *directory*, and its text
+        as committed on the branch of the mandate's investigation ticket, where an open pull request
+        must hold it for the CEO's YES to merge. No text for a mandate granted with no such ticket."""
+        path = document_path(path, directory, kind)
+        ticket = investigation_tickets(db_path).get(mandate)
+        if not (project and gh and ticket):
+            return path, None
+        text = committed(project, ticket, path, kind)
+        open_pull_request(gh, ticket, kind)
+        return path, text
+
     @server.tool(name="submit_diagnosis")
     def submit_diagnosis_tool(mandate: str, diagnosis_path: str) -> dict:
         """Submit a Diagnosis: the mandate's challenging Role is woken to challenge it. It reaches
-        the CEO's Diagnosis gate only once the Challenge is recorded."""
+        the CEO's Diagnosis gate only once the Challenge is recorded.
+
+        `diagnosis_path` is `.claudarama/company/diagnoses/<name>.md`, from the project's root. Before
+        you submit, commit the file on the ticket's branch and open a pull request from that branch:
+        the CEO's YES merges it. A Diagnosis is refused unless it has the headings Measure, Rival
+        explanations, Recommended strategy and, when the mandate has judged cases, Judged cases."""
         authenticate(db_path, token)
+        diagnosis_path, text = submitted(mandate, diagnosis_path, DIAGNOSES, "Diagnosis")
+        if text is not None and (missing := missing_sections(text, has_judged_cases(db_path, mandate))):
+            raise ValueError(
+                f"the Diagnosis at {diagnosis_path} lacks its required sections: {', '.join(missing)}. "
+                "Each is a heading of that name"
+            )
         submit_diagnosis(db_path, mandate, diagnosis_path)
         return {"ok": True, "mandate": mandate, "status": "INVESTIGATING", "blocked_on_ceo": False}
 
@@ -246,8 +276,13 @@ def create_mcp_server(
 
     @server.tool(name="submit_lessons")
     def submit_lessons_tool(mandate: str, lesson_path: str) -> dict:
-        """Submit the Lessons of a LEARNING mandate: it moves to CLOSED and pauses for the CEO."""
+        """Submit the Lessons of a LEARNING mandate: it moves to CLOSED and pauses for the CEO.
+
+        `lesson_path` is the Retro, `.claudarama/company/retros/<name>.md`, from the project's root.
+        Before you submit, commit the file on the ticket's branch and open a pull request from that
+        branch: the CEO's YES at the Lesson gate merges it."""
         authenticate(db_path, token)
+        lesson_path, _ = submitted(mandate, lesson_path, RETROS, "Retro")
         submit_lessons(db_path, mandate, lesson_path)
         return {"ok": True, "mandate": mandate, "status": "CLOSED", "blocked_on_ceo": True}
 

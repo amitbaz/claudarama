@@ -39,6 +39,23 @@ CHALLENGE_STANDS = {"tool": "record_challenge", "args": {
     "mandate": "M", "verdict": "STANDS", "reasons": "Five runs gave the same spread.", "ran": "the eval, five times"}}
 CHALLENGED = {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [CHALLENGE_STANDS]}]}
 
+M_DIAGNOSIS = ".claudarama/company/diagnoses/m.md"
+
+
+def _committed(path: str, *sections: str) -> dict:
+    """The turn writes a document of *sections* at *path* and commits it on its ticket's branch."""
+    text = "".join(f"## {section}\\n" for section in sections)
+    return {"run": ["sh", "-c", f"mkdir -p {path.rpartition('/')[0]} && printf '{text}' > {path} && git add {path} && "
+                    "git -c user.name=Amy -c user.email=amy@example.com commit --quiet -m 'Write it down'"]}
+
+
+# Mandate M's Diagnosis as its author hands it in: committed on the ticket's branch, in a pull request, submitted.
+DIAGNOSED = [
+    _committed(M_DIAGNOSIS, "Measure", "Rival explanations", "Recommended strategy"),
+    {"run": ["gh", "pr", "create", "--title", "Diagnosis of M"]},
+    {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": M_DIAGNOSIS}},
+]
+
 
 def test_the_loop_scenario_walks_a_mandate_from_its_grant_to_closed():
     result = run_scenario_file(ROOT / "scenarios" / "loop.json")
@@ -79,7 +96,7 @@ def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
 def test_a_turn_can_neither_list_nor_answer_a_gate():
     granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
     approves_its_own = {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": [
-        {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "d.md"}},
+        *DIAGNOSED,
         {"tool": "list_gates"},
         {"tool": "answer_gate", "args": {"gate": "diagnosis:M", "answer": "YES"}},
     ]}]}
@@ -102,13 +119,9 @@ def test_a_turn_can_neither_list_nor_answer_a_gate():
 # --- a worktree per ticket (issue #91) ---------------------------------------------
 
 M_GRANTED = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
-# The researcher opens a pull request from the ticket's branch, withdraws it, and submits a Diagnosis.
+# The researcher submits a Diagnosis in a pull request from the ticket's branch, and withdraws the pull request.
 # Once it is challenged, the CEO's DISCUSS reviews the gates and wakes nobody on the ticket.
-WITHDRAWN_PR = [
-    {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #1"]},
-    {"run": ["gh", "pr", "close", "101"]},
-    {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
-]
+WITHDRAWN_PR = [*DIAGNOSED, {"run": ["gh", "pr", "close", "101"]}]
 REVIEWED = "CEO answers DISCUSS\\nMandate 'M': PLANNING, waiting for the CEO\\nThe CEO's checkout is on main; worktrees: "
 
 
@@ -120,7 +133,7 @@ def test_a_closed_pull_request_takes_the_tickets_worktree_and_leaves_its_branch_
     commit = ["git", "-c", "user.name=Amy", "-c", "user.email=amy@example.com", "commit", "--allow-empty", "-m", "Faster checkout"]
     steps = [
         M_GRANTED,
-        _on_ticket_1({"run": commit}, *WITHDRAWN_PR),
+        _on_ticket_1(*WITHDRAWN_PR, {"run": commit}),
         CHALLENGED,
         {"type": "ceo_action", "input": "DISCUSS"},
         {"type": "ceo_action", "input": "NO", "reason": "Look at the cart."},
@@ -167,9 +180,7 @@ def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
             {"tool": "grant", "args": {"mandate": "M", "ticket": "1", "investigator": "eval-engineer"}},
             {"tool": "grant", "args": {"mandate": "N", "ticket": "2", "investigator": "detective"}},
         ]},
-        {"type": "mock_llm_turns", "turns": [{"role": "eval-engineer", "ticket": "1", "calls": [
-            {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
-        ]}]},
+        {"type": "mock_llm_turns", "turns": [{"role": "eval-engineer", "ticket": "1", "calls": DIAGNOSED}]},
         CHALLENGED,
         {"type": "ceo_action", "input": "NO", "reason": "The eval is too noisy to tell."},
     ]
@@ -216,11 +227,10 @@ def test_the_grant_names_a_challenging_role_that_is_not_the_investigating_role()
 def test_a_mandate_moves_to_learning_when_a_turn_closes_its_last_ticket():
     steps = [
         M_GRANTED,
-        _on_ticket_1({"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}}),
+        _on_ticket_1(*DIAGNOSED),
         CHALLENGED,
         {"type": "ceo_action", "input": "YES"},
         {"type": "mock_llm_turns", "turns": [{"role": "pm", "ticket": "1", "calls": [
-            {"run": ["gh", "issue", "close", "1"]},
             {"tool": "submit_epic", "args": {"mandate": "M", "tickets": {"2": "designer"}}},
         ]}]},
         {"type": "ceo_action", "input": "YES"},
@@ -228,8 +238,55 @@ def test_a_mandate_moves_to_learning_when_a_turn_closes_its_last_ticket():
     ]
 
     result = _walk(steps, includes=[
+        # The YES at the Diagnosis gate merged the Diagnosis and closed the investigation ticket,
+        # which the pull request did not name: nobody closes ticket 1 by hand.
+        "CEO answers YES\\nPull request #101 is merged\\nTicket 1 is closed\\npm is woken on ticket 1\\nMandate 'M': PLANNING\\n",
         # No CEO answer moved it: the office saw the last ticket closed when the turn ended.
         "designer's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'M': LEARNING\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+# --- documents merge at their gates (issue #92) --------------------------------------
+
+
+def test_a_diagnosis_is_accepted_only_in_its_directory_committed_complete_and_in_a_pull_request():
+    def submit(path):
+        return {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": path}}
+
+    steps = [
+        {"type": "ceo_action", "calls": [{"tool": "grant", "args": {
+            "mandate": "M", "ticket": "1", "judged_cases": "A cart of three items loads within a second."}}]},
+        _on_ticket_1(
+            submit("docs/m.md"),
+            submit(".claudarama/company/retros/m.md"),
+            submit(M_DIAGNOSIS),  # nothing is committed there yet
+            _committed(M_DIAGNOSIS, "Measure"),
+            submit(M_DIAGNOSIS),  # no pull request holds it yet
+            {"run": ["gh", "pr", "create", "--title", "Diagnosis of M"]},
+            submit(M_DIAGNOSIS),  # it has one of its four sections
+            _committed(M_DIAGNOSIS, "Measure and its spread", "Rival explanations", "Judged cases", "Recommended strategy"),
+            submit(M_DIAGNOSIS),
+            {"run": ["gh", "pr", "close", "101"]},
+        ),
+        CHALLENGED,
+        {"type": "ceo_action", "input": "YES"},
+    ]
+    only_at = "REFUSED: .*a Diagnosis is accepted only at \\.claudarama/company/diagnoses/<name>\\.md.*"
+
+    result = _walk(steps, includes=[
+        f"docs/m\\.md\"\\}} -> {only_at}'docs/m\\.md'\\n",
+        f"retros/m\\.md\"\\}} -> {only_at}\\n",
+        "-> REFUSED: .*no Diagnosis is committed at \\.claudarama/company/diagnoses/m\\.md on the branch ticket-1",
+        "-> REFUSED: .*no open pull request from the branch ticket-1 holds the Diagnosis.*\\n"
+        "researcher runs gh pr create .*\\n"
+        "researcher calls .* -> REFUSED: .*lacks its required sections: Rival explanations, Judged cases, Recommended strategy\\.",
+        "researcher calls submit_diagnosis .* -> \\{\"ok\": true.*\\nresearcher runs gh pr close 101 ->\\n"
+        "researcher's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
+        # The pull request was withdrawn after the Diagnosis was submitted: the CEO's YES has nothing to merge.
+        "CEO answers YES -> REFUSED: .*no open pull request from the branch ticket-1.*\\n"
+        "Mandate 'M': PLANNING, waiting for the CEO\\n",
     ])
 
     assert result.passed, _why(result)

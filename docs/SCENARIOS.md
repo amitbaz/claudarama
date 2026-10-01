@@ -60,8 +60,9 @@ With `steps`, the reply the checks read is what a real office showed while the s
     ]},
     {"type": "mock_llm_turns", "turns": [
       {"role": "researcher", "ticket": "1", "calls": [
-        {"run": ["gh", "issue", "view", "1", "--json", "state"]},
-        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}}
+        {"run": ["sh", "-c", "mkdir -p .claudarama/company/diagnoses && printf '## Measure\\n## Rival explanations\\n## Recommended strategy\\n' > .claudarama/company/diagnoses/checkout.md && git add .claudarama && git -c user.name=Amy -c user.email=amy@example.com commit --quiet -m Diagnosis"]},
+        {"run": ["gh", "pr", "create", "--title", "Diagnosis: the slow checkout", "--body", "Closes #1"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": ".claudarama/company/diagnoses/checkout.md"}}
       ]}
     ]},
     {"type": "mock_llm_turns", "turns": [
@@ -111,10 +112,14 @@ CEO answers YES
 CEO answers YES -> REFUSED: <the server's reason>
 CEO answers NO
 CEO's reason: <the reason>
+Pull request #<number> is <merged or closed>
+Ticket <ticket> is closed
 Mandate '<mandate>': <STATUS>
 Mandate '<mandate>': <STATUS>, waiting for the CEO
 The CEO's checkout is on <branch>; worktrees: <ticket-1, ticket-2, or none>
 ```
+
+A Diagnosis or a Retro is submitted the way its author would: the scripted turn writes the file in its directory of the pack, commits it on the ticket's branch and opens a pull request before it calls `submit_diagnosis` or `submit_lessons`. Right after the CEO's answer come the pull requests and tickets that answer merged or closed on the stand-in GitHub.
 
 After each step come the turns the office queued during it, then what it told the CEO that is not a gate opening (a gate's notification is shown where the CEO answers it), then every Mandate's line, so a check can name the step, who it woke and the state it leaves: `"CEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
 

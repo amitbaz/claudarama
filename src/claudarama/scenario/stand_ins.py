@@ -64,14 +64,20 @@ async def claude(state: Path, argv: list[str]) -> None:
         print(RESULT, flush=True)
 
 
+def github(state: Path) -> tuple[dict, object]:
+    """The stand-in GitHub as its last call left it, and the lock that holds it still until let go."""
+    # The office asks GitHub while turns change it: one call at a time reads and writes gh.json.
+    lock = open(state / "gh.lock", "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    path = state / "gh.json"
+    return json.loads(path.read_text()) if path.exists() else {"milestones": [], "issues": {}, "prs": []}, lock
+
+
 def gh(state: Path, argv: list[str]) -> None:
     """A GitHub of milestones, issues and pull requests, kept in ``gh.json``. It answers what the
     office and its turns ask of ``gh`` and nothing else."""
-    # The office asks GitHub while turns change it: one call at a time reads and writes gh.json.
-    lock = open(state / "gh.lock", "w")  # let go when this call ends
-    fcntl.flock(lock, fcntl.LOCK_EX)
+    hub, lock = github(state)  # let go when this call ends
     path = state / "gh.json"
-    hub = json.loads(path.read_text()) if path.exists() else {"milestones": [], "issues": {}, "prs": []}
 
     def issue(number: str) -> dict:
         return hub["issues"].setdefault(number, {"state": "OPEN", "milestone": None})

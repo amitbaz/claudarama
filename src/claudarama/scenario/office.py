@@ -19,7 +19,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from claudarama.db import get_owner_token, get_turn, init_db, list_turns, mandate_states
 from claudarama.scaffold import PACK_DIR_NAME
-from claudarama.scenario.stand_ins import RESULT, call
+from claudarama.scenario.stand_ins import RESULT, call, github
 from claudarama.scenario.validator import CeoActionStep, Scenario
 from claudarama.session import mcp_config
 from claudarama.worktrees import worktrees_root
@@ -107,6 +107,14 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
         every = [json.loads(line) for line in told.read_text().splitlines()] if told.exists() else []
         return [text for text in every if bool(re.match(r"\w+ gate: ", text)) == of_gates]
 
+    def on_github() -> dict[str, str]:
+        """Each pull request and ticket of the stand-in GitHub with its state."""
+        hub, lock = github(state)
+        lock.close()
+        return {f"Pull request #{pr['number']}": pr["state"] for pr in hub["prs"]} | {
+            f"Ticket {number}": issue["state"] for number, issue in hub["issues"].items()
+        }
+
     told: list[str] = []  # the gate notifications already shown
     told_besides: list[str] = []  # the other notifications already shown
     discussing: set[str] = set()  # gates the CEO left at DISCUSS: no new notification brings them back
@@ -131,10 +139,14 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             seen.extend(f"Notification: {text}" for text in new)
         seen.append(gate["shows"])
         given = {"gate": gate["gate"], "answer": reply} | ({"reason": reason} if reply == "NO" else {})
+        before = on_github()
         answered = await ceo.call_tool("answer_gate", given)
         seen.append(f"CEO answers {reply}" + (f" -> REFUSED: {answered.content[0].text}" if answered.isError else ""))
         if reply == "NO":
             seen.append(f"CEO's reason: {reason}")
+        seen.extend(  # what the answer merged or closed
+            f"{what} is {now.lower()}" for what, now in on_github().items() if now != "OPEN" and before.get(what) != now
+        )
         (discussing.add if reply == "DISCUSS" else discussing.discard)(gate["gate"])
 
     def transcript(turn_id: str) -> str:

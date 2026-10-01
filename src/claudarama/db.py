@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS mandates (
     investigator TEXT NOT NULL DEFAULT 'researcher',  -- the investigating Role
     investigation_ticket TEXT,  -- its thread carries the mandate's own work: Diagnosis, Epic and Retro
     challenger TEXT NOT NULL DEFAULT 'engineering-lead',  -- the challenging Role, never the investigating Role
-    awaiting_challenge INTEGER NOT NULL DEFAULT 0  -- a Diagnosis is submitted and its Challenge is not yet recorded
+    awaiting_challenge INTEGER NOT NULL DEFAULT 0,  -- a Diagnosis is submitted and its Challenge is not yet recorded
+    judged_cases TEXT NOT NULL DEFAULT ''  -- the CEO's judged cases; a Diagnosis of a mandate that has them reports on them
 );
 
 CREATE TABLE IF NOT EXISTS challenges (
@@ -229,7 +230,7 @@ def init_db(db_path: Path) -> None:
             ("diagnosis_path", "TEXT"), ("lesson_path", "TEXT"),
             ("investigator", "TEXT NOT NULL DEFAULT 'researcher'"), ("investigation_ticket", "TEXT"),
             ("challenger", "TEXT NOT NULL DEFAULT 'engineering-lead'"),
-            ("awaiting_challenge", "INTEGER NOT NULL DEFAULT 0"),
+            ("awaiting_challenge", "INTEGER NOT NULL DEFAULT 0"), ("judged_cases", "TEXT NOT NULL DEFAULT ''"),
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE mandates ADD COLUMN {col} {decl}")
@@ -428,10 +429,11 @@ def save_turn_usage(db_path: Path, turn_id: str, usage: dict, model: str | None 
 
 def grant_mandate(
     db_path: Path, mandate_id: str, ticket: str | None = None,
-    investigator: str = "researcher", challenger: str = "engineering-lead",
+    investigator: str = "researcher", challenger: str = "engineering-lead", judged_cases: str = "",
 ) -> None:
     """Record the CEO's grant of a mandate, naming its investigating Role and its challenging Role,
-    and wake the investigating Role on its investigation *ticket*.
+    and wake the investigating Role on its investigation *ticket*. *judged_cases* are the CEO's own
+    cases of what is right and what is wrong, when the mandate has them.
 
     Granting twice is harmless: the second grant changes nothing and wakes nobody.
     """
@@ -444,12 +446,27 @@ def grant_mandate(
         )
     with sqlite3.connect(db_path) as conn:
         new = conn.execute(
-            "INSERT OR IGNORE INTO mandates (id, investigator, challenger, investigation_ticket) VALUES (?, ?, ?, ?)",
-            (mandate_id, investigator, challenger, ticket),
+            "INSERT OR IGNORE INTO mandates (id, investigator, challenger, investigation_ticket, judged_cases) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (mandate_id, investigator, challenger, ticket, judged_cases.strip()),
         ).rowcount
     if new and ticket:
         register_ticket(db_path, ticket, mandate_id, role=investigator)
         queue_turn(db_path, investigator, thread=thread_key(ticket, None))
+
+
+def investigation_tickets(db_path: Path) -> dict[str, str]:
+    """Each mandate's investigation ticket, whose branch carries the mandate's Diagnosis and Retro."""
+    with sqlite3.connect(db_path) as conn:
+        return dict(conn.execute(
+            "SELECT id, investigation_ticket FROM mandates WHERE investigation_ticket IS NOT NULL"))
+
+
+def has_judged_cases(db_path: Path, mandate_id: str) -> bool:
+    """True when the CEO gave *mandate_id* judged cases at its grant."""
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute("SELECT 1 FROM mandates WHERE id = ? AND judged_cases != ''", (mandate_id,)).fetchone()
+    return row is not None
 
 
 def list_turns(db_path: Path) -> list[dict]:

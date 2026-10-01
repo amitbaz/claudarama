@@ -19,10 +19,13 @@ def db(tmp_path):
     return path
 
 
+DIAGNOSIS = ".claudarama/company/diagnoses/d.md"
+
+
 def _submit(db):
     """Submit the Diagnosis and record the Challenge that opens its gate."""
     server = create_mcp_server(db_path=db, token=get_owner_token(db))
-    server._tool_manager.get_tool("submit_diagnosis").fn(mandate="M1", diagnosis_path="d.md")
+    server._tool_manager.get_tool("submit_diagnosis").fn(mandate="M1", diagnosis_path=DIAGNOSIS)
     record_challenge(db, "M1", "engineering-lead", "STANDS", "Reproduced.", "the check, three times")
 
 
@@ -35,7 +38,7 @@ def test_diagnosis_pauses_mandate_and_scheduler_skips_it(db):
     queue_turn(db, "fullstack-engineer", thread="ticket:T1")
     assert len(get_queued_turns(db)) == 1
     _submit(db)
-    assert _state(db) == ("PLANNING", 1, "d.md")
+    assert _state(db) == ("PLANNING", 1, DIAGNOSIS)
     assert get_queued_turns(db) == []
     with pytest.raises(ValueError, match="not INVESTIGATING"):
         _submit(db)
@@ -65,7 +68,7 @@ def test_a_challenge_needs_a_submitted_diagnosis_a_verdict_its_reasons_and_what_
     with pytest.raises(ValueError, match="no Diagnosis waiting for a Challenge"):
         challenge()
     create_mcp_server(db_path=db, token=get_owner_token(db))._tool_manager.get_tool("submit_diagnosis").fn(
-        mandate="M1", diagnosis_path="d.md")
+        mandate="M1", diagnosis_path=DIAGNOSIS)
     with pytest.raises(ValueError, match="STANDS or DISPUTED"):
         challenge(verdict="SHIP")
     with pytest.raises(ValueError, match="its reasons and what the challenger ran"):

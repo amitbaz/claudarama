@@ -58,4 +58,4 @@ Overlays appended to a Role's brief. This is the only place project stack knowle
 Scenario files that `claudarama eval` runs when given no paths.
 
 ## `company/diagnoses/` and `company/retros/`
-The fixed places for a Diagnosis and a Retro, one file per Mandate.
+The fixed places for a Diagnosis and a Retro, one file per Mandate. The office accepts a Diagnosis only at `company/diagnoses/<name>.md` and a Retro only at `company/retros/<name>.md`, submitted by its path from the project's root, and refuses any other path.

@@ -5,13 +5,15 @@ from types import SimpleNamespace
 import pytest
 
 from claudarama.daemon import create_mcp_server
-from claudarama.db import get_owner_token, init_db
+from claudarama.db import get_owner_token, grant_mandate, init_db, submit_diagnosis
 
 
 @pytest.fixture
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
+    grant_mandate(path, "M1")
+    submit_diagnosis(path, "M1", "docs/diagnoses/m1.md")
     return path
 
 
@@ -46,8 +48,21 @@ def test_rerun_on_same_head_replaces_the_verdict(db):
 
 @pytest.mark.parametrize("bad", [
     {"verdict": "MAYBE"}, {"diagnosis_path": " "}, {"command": ""},
+    {"diagnosis_path": "docs/diagnoses/made-up.md"},
 ])
-def test_refuses_unknown_verdict_and_missing_evidence(db, bad):
+def test_refuses_unknown_verdict_missing_evidence_and_unlinked_diagnosis(db, bad):
     with pytest.raises(ValueError):
         _ship_check(db, **{**GOOD, **bad})
     assert _rows(db) == []
+
+
+def test_init_db_adds_evidence_columns_to_an_old_verdicts_table(tmp_path):
+    path = tmp_path / "old.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "CREATE TABLE verdicts (pull_request INTEGER NOT NULL, head_commit TEXT NOT NULL, "
+            "reviewer_id TEXT NOT NULL, verdict TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+            "PRIMARY KEY (pull_request, head_commit, reviewer_id))")
+        conn.execute("INSERT INTO verdicts (pull_request, head_commit, reviewer_id, verdict) VALUES (1, 'a', 'x', 'SHIP')")
+    init_db(path)
+    assert _rows(path) == [(1, "a", "x", "SHIP", None, None)]

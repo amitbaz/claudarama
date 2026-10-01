@@ -562,6 +562,8 @@ def record_verdict(
     if not diagnosis_path.strip() or not command.strip():
         raise ValueError("a Ship-check needs the Diagnosis path and the command that was run")
     with sqlite3.connect(db_path) as conn:
+        if conn.execute("SELECT 1 FROM mandates WHERE diagnosis_path = ?", (diagnosis_path,)).fetchone() is None:
+            raise ValueError(f"no mandate has submitted a Diagnosis at {diagnosis_path!r}")
         conn.execute(
             "INSERT INTO verdicts (pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command) "
             "VALUES (?, ?, ?, ?, ?, ?) "

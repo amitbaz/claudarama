@@ -134,12 +134,23 @@ def test_the_engineering_leads_brief_ties_ship_to_repeated_runs_and_named_bar_ch
     ]) == []
 
 
+@pytest.mark.parametrize("role", ["engineering-lead", "eval-engineer"])
+def test_a_challenging_roles_brief_names_the_tool_that_records_the_challenge(tmp_path, role):
+    assert _missing(build_brief(tmp_path, role), [
+        "recorded with `record_challenge`: stands or disputed, with reasons and with what you ran",
+    ]) == []
+
+
 def test_the_assistants_brief_covers_mandates_setup_and_project_knowledge(tmp_path):
     assert _missing(build_brief(tmp_path, "assistant"), [
         # shaping a Mandate and naming the investigator
         "**a mandate**",
         "**investigating role**: researcher by default",
         "call `grant` with the mandate, that ticket and the investigating role",
+        # naming the challenger
+        "**challenging role**: engineering-lead by default, and never the investigating role",
+        "name the eval-engineer when the problem is judged by a test or eval of ai behaviour",
+        "tell the ceo both roles before the grant, and pass this one to `grant` as `challenger`",
         # judged cases anchor a quality Mandate
         "this is right, this is wrong, and why",
         "attach them to the mandate",

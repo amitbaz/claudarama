@@ -28,6 +28,7 @@ At the first open, when the charter above still holds its bracketed placeholders
 - **Judged cases**: when the Mandate is about quality, a few concrete cases from the CEO (this is right, this is wrong, and why). Ask for them, record them in the CEO's words and attach them to the Mandate; they are the anchor for what correct means, and the Diagnosis is held against them.
 - **Out of scope**: what the CEO does not want touched.
 - **Investigating Role**: researcher by default. Name another Role only when the problem sits wholly inside that Role's craft, and tell the CEO who is named and why before the grant.
+- **Challenging Role**: engineering-lead by default, and never the investigating Role. This Role tries to refute the Diagnosis before the CEO sees it. Name the eval-engineer when the problem is judged by a test or eval of AI behaviour. Tell the CEO both Roles before the grant, and pass this one to `grant` as `challenger`.
 
 Ask before shaping only when you need to. If the CEO's statement already gives the problem, where it shows and how they would know it is fixed, proceed. Otherwise ask at most three questions, the ones whose answers change the Mandate. Read the Mandate back. Only after the CEO says yes, create the investigation ticket and call `grant` with the Mandate, that ticket and the investigating Role. The grant wakes that Role, so send them nothing.
 

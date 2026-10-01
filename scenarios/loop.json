@@ -12,7 +12,23 @@
         {"run": ["git", "rev-parse", "--is-inside-work-tree"]},
         {"run": ["pwd"]},
         {"run": ["git", "branch", "--show-current"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}},
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "STANDS", "reasons": "I timed it twice.", "ran": "the page timer"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "DISPUTED", "reasons": "The timing swings by half a second with nothing changed.", "ran": "the page timer, five times on the unchanged commit"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "1", "calls": [
         {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "DISPUTED", "reasons": "The payment page is still inside the spread.", "ran": "the page timer, ten times"}}
       ]}
     ]},
     {"type": "ceo_action", "input": "DISCUSS"},
@@ -20,6 +36,11 @@
     {"type": "mock_llm_turns", "turns": [
       {"ticket": "1", "calls": [
         {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout-2.md"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "STANDS", "reasons": "The cart's timing beats the spread in every run.", "ran": "the cart timer, ten times before and after"}}
       ]}
     ]},
     {"type": "ceo_action", "input": "YES"},
@@ -91,21 +112,26 @@
   ],
   "checks": {
     "includes": [
-      "CEO calls grant .* -> \\{\"ok\": true.*\"investigator\": \"researcher\".*\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "CEO calls grant .* -> \\{\"ok\": true.*\"investigator\": \"researcher\", \"challenger\": \"engineering-lead\"\\}\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
       "\\| You are the researcher \\(Amy\\)\\.",
       "\\| Working on ticket: 1",
       "researcher runs git rev-parse --is-inside-work-tree -> true",
       "researcher runs pwd -> \\S+/office-worktrees/ticket-1\\n",
       "researcher runs git branch --show-current -> ticket-1\\n",
       "researcher calls submit_diagnosis .* -> \\{\"ok\": true",
-      "researcher's turn: done\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO",
-      "Notification: Diagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout.md\\nDiagnosis gate: ",
-      "Diagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout.md\\nCEO answers DISCUSS\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO",
-      "CEO answers DISCUSS\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO\\nThe CEO's checkout is on main; worktrees: ticket-1\\nDiagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout.md\\nCEO answers NO\\n",
-      "checkout.md\\nCEO answers NO\\nCEO's reason: The cart is slow, not the payment page\\.\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "researcher calls record_challenge .* -> REFUSED: .* only from the engineering-lead \\(Kif\\), its challenging Role, not from researcher \\(Amy\\)",
+      "researcher's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "\\| \\*\\*researcher \\(Amy\\) → engineering-lead \\(Kif\\)\\*\\* \\[DIAGNOSIS\\]: .*company/diagnoses/checkout\\.md.*is the measure believable, and how much does it vary with nothing changed\\? What else could explain the evidence\\? What is missing\\?.*`record_challenge`",
+      "engineering-lead calls record_challenge .*swings by half a second.* -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "\\| \\*\\*engineering-lead \\(Kif\\) → researcher \\(Amy\\)\\*\\* \\[DISPUTED\\]: The timing swings by half a second with nothing changed\\.\\n  \\| What was run: the page timer, five times on the unchanged commit\\n",
+      "engineering-lead calls record_challenge .*still inside the spread.* -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO\\n",
+      "Diagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout.md\\nChallenge by engineering-lead \\(Kif\\): DISPUTED: The payment page is still inside the spread\\.\\nWhat was run: the page timer, ten times\\nCEO answers DISCUSS\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO",
+      "ten times\\nCEO answers NO\\nCEO's reason: The cart is slow, not the payment page\\.\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
       "\\| \\*\\*ceo → researcher \\(Amy\\)\\*\\* \\[NO\\]: Diagnosis gate: The cart is slow, not the payment page\\.",
-      "Notification: Diagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout-2.md\\nDiagnosis gate: ",
-      "checkout-2.md\\nCEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
+      "checkout-2.md\\nChallenge by engineering-lead \\(Kif\\): STANDS: The cart's timing beats the spread in every run\\.\\nWhat was run: the cart timer, ten times before and after\\nCEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
+      "Notification: Diagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout.md\\nChallenge by engineering-lead \\(Kif\\): DISPUTED: The payment page is still inside the spread\\.\\nWhat was run: the page timer, ten times\\nDiagnosis gate: ",
+      "CEO answers DISCUSS\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO\\nThe CEO's checkout is on main; worktrees: ticket-1\\nDiagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout.md\\nChallenge by engineering-lead \\(Kif\\): DISPUTED: The payment page is still inside the spread\\.\\nWhat was run: the page timer, ten times\\nCEO answers NO\\n",
+      "Notification: Diagnosis gate: mandate 'Speed up checkout', diagnosis at company/diagnoses/checkout-2.md\\nChallenge by engineering-lead \\(Kif\\): STANDS: The cart's timing beats the spread in every run\\.\\nWhat was run: the cart timer, ten times before and after\\nDiagnosis gate: ",
       "Notification: Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2\\nEpic gate: mandate 'Speed up checkout', tickets:\\n  - 2\\nCEO answers NO\\n",
       "Notification: Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2\\n  - 3\\nEpic gate: mandate 'Speed up checkout', tickets:\\n  - 2\\n  - 3\\nCEO answers YES\\n",
       "Notification: PR gate: #101 has a SHIP verdict for head commit commit-1\\nPR gate: #101 ",

@@ -30,7 +30,7 @@ The Ship-check has these sections:
 
 A SHIP verdict rests on repeated runs that beat the spread. One good run is inside the noise until the other runs agree with it.
 
-**The Challenge**, when you are the challenging Role: STANDS or DISPUTED, with reasons and with what you ran. Regenerate the evidence; do not reason from the author's output.
+**The Challenge**, when you are the challenging Role, recorded with `record_challenge`: STANDS or DISPUTED, with reasons and with what you ran. Regenerate the evidence; do not reason from the author's output.
 
 **The Retro**, a file under the pack's `company/retros/` directory, submitted with `submit_lessons`: where the Mandate went wrong at each NO and each FAIL, why, and the Lessons it proposes, each a short rule scoped to the company or to one Role.
 

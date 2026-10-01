@@ -85,7 +85,20 @@ CREATE TABLE IF NOT EXISTS mandates (
     diagnosis_path TEXT,
     lesson_path TEXT,
     investigator TEXT NOT NULL DEFAULT 'researcher',  -- the investigating Role
-    investigation_ticket TEXT  -- its thread carries the mandate's own work: Diagnosis, Epic and Retro
+    investigation_ticket TEXT,  -- its thread carries the mandate's own work: Diagnosis, Epic and Retro
+    challenger TEXT NOT NULL DEFAULT 'engineering-lead',  -- the challenging Role, never the investigating Role
+    awaiting_challenge INTEGER NOT NULL DEFAULT 0  -- a Diagnosis is submitted and its Challenge is not yet recorded
+);
+
+CREATE TABLE IF NOT EXISTS challenges (
+    id INTEGER PRIMARY KEY,
+    mandate_id TEXT NOT NULL,
+    verdict TEXT NOT NULL,     -- 'STANDS' or 'DISPUTED'
+    reasons TEXT NOT NULL,
+    ran TEXT NOT NULL,         -- what the challenger ran
+    challenger TEXT NOT NULL,  -- who recorded it
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(mandate_id) REFERENCES mandates(id)
 );
 
 CREATE TABLE IF NOT EXISTS tickets (
@@ -208,6 +221,8 @@ def init_db(db_path: Path) -> None:
             ("blocked_on_ceo", "INTEGER NOT NULL DEFAULT 0"), ("pauses", "INTEGER NOT NULL DEFAULT 0"),
             ("diagnosis_path", "TEXT"), ("lesson_path", "TEXT"),
             ("investigator", "TEXT NOT NULL DEFAULT 'researcher'"), ("investigation_ticket", "TEXT"),
+            ("challenger", "TEXT NOT NULL DEFAULT 'engineering-lead'"),
+            ("awaiting_challenge", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE mandates ADD COLUMN {col} {decl}")
@@ -395,17 +410,26 @@ def save_turn_usage(db_path: Path, turn_id: str, usage: dict, model: str | None 
         )
 
 
-def grant_mandate(db_path: Path, mandate_id: str, ticket: str | None = None, investigator: str = "researcher") -> None:
-    """Record the CEO's grant of a mandate and wake its investigating Role on its investigation *ticket*.
+def grant_mandate(
+    db_path: Path, mandate_id: str, ticket: str | None = None,
+    investigator: str = "researcher", challenger: str = "engineering-lead",
+) -> None:
+    """Record the CEO's grant of a mandate, naming its investigating Role and its challenging Role,
+    and wake the investigating Role on its investigation *ticket*.
 
     Granting twice is harmless: the second grant changes nothing and wakes nobody.
     """
-    if investigator not in CAST:
-        raise ValueError(f"unknown Role {investigator!r}; the Roles are: {', '.join(map(shown, CAST))}")
+    for role in (investigator, challenger):
+        if role not in CAST:
+            raise ValueError(f"unknown Role {role!r}; the Roles are: {', '.join(map(shown, CAST))}")
+    if challenger == investigator:
+        raise ValueError(
+            f"the challenging Role must differ from the investigating Role: both are the {shown(investigator)}"
+        )
     with sqlite3.connect(db_path) as conn:
         new = conn.execute(
-            "INSERT OR IGNORE INTO mandates (id, investigator, investigation_ticket) VALUES (?, ?, ?)",
-            (mandate_id, investigator, ticket),
+            "INSERT OR IGNORE INTO mandates (id, investigator, challenger, investigation_ticket) VALUES (?, ?, ?, ?)",
+            (mandate_id, investigator, challenger, ticket),
         ).rowcount
     if new and ticket:
         register_ticket(db_path, ticket, mandate_id)
@@ -434,25 +458,91 @@ def pauses(db_path: Path) -> dict[str, int]:
         return dict(conn.execute("SELECT id, pauses FROM mandates WHERE blocked_on_ceo = 1"))
 
 
+# What a submitted Diagnosis tells its challenging Role, whichever Role that is: it joins the thread
+# the challenge turn's brief loads.
+CHALLENGE_BRIEF = (
+    "The Diagnosis of mandate {mandate!r} is submitted at {path}. You are its challenging Role: try to "
+    "refute it before the CEO sees it. Do not trust the author's evidence; regenerate what the finding "
+    "rests on. Ask: is the measure believable, and how much does it vary with nothing changed? What else "
+    "could explain the evidence? What is missing? Then call `record_challenge` with STANDS or DISPUTED, "
+    "your reasons and what you ran."
+)
+
+
 def submit_diagnosis(db_path: Path, mandate_id: str, diagnosis_path: str) -> None:
-    """Move an INVESTIGATING mandate to PLANNING and pause it for the CEO's Diagnosis gate."""
+    """Record an INVESTIGATING mandate's Diagnosis and wake its challenging Role. The Diagnosis gate
+    opens only once that Role's Challenge is recorded."""
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "UPDATE mandates SET status = 'PLANNING', blocked_on_ceo = 1, pauses = pauses + 1, diagnosis_path = ? "
-            "WHERE id = ? AND status = 'INVESTIGATING'",
+            "UPDATE mandates SET diagnosis_path = ?, awaiting_challenge = 1 "
+            "WHERE id = ? AND status = 'INVESTIGATING' "
+            "RETURNING investigator, challenger, investigation_ticket",
             (diagnosis_path, mandate_id),
         )
-        if cur.rowcount == 0:
+        row = cur.fetchone()
+        if row is None:
             raise ValueError(f"mandate {mandate_id!r} is not INVESTIGATING")
+    investigator, challenger, ticket = row
+    if ticket:  # a mandate granted before grants named an investigation ticket has none
+        body = CHALLENGE_BRIEF.format(mandate=mandate_id, path=diagnosis_path)
+        store_message(db_path, investigator, challenger, "DIAGNOSIS", body, ticket=ticket)
+        queue_turn(db_path, challenger, thread=thread_key(ticket, None))
+
+
+def record_challenge(db_path: Path, mandate_id: str, challenger_id: str, verdict: str, reasons: str, ran: str) -> None:
+    """Store the Challenge of a submitted Diagnosis and open the Diagnosis gate: the mandate moves
+    to PLANNING and pauses for the CEO, whatever the verdict.
+
+    A mandate's first DISPUTED instead returns the Diagnosis to the investigating Role, woken with
+    the reasons; the next submission reaches the CEO with its verdict either way.
+
+    Only the mandate's challenging Role may record one, so no author clears their own finding.
+    """
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT challenger, awaiting_challenge, investigator, investigation_ticket FROM mandates WHERE id = ?",
+            (mandate_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"mandate {mandate_id!r} is not granted")
+        challenger, awaiting, investigator, ticket = row
+        if challenger_id != challenger:
+            raise PermissionError(
+                f"a Challenge of mandate {mandate_id!r} is accepted only from the {shown(challenger)}, "
+                f"its challenging Role, not from {shown(challenger_id)}"
+            )
+        if verdict not in ("STANDS", "DISPUTED"):
+            raise ValueError(f"verdict must be STANDS or DISPUTED, not {verdict!r}")
+        if not reasons.strip() or not ran.strip():
+            raise ValueError("a Challenge needs its reasons and what the challenger ran")
+        if not awaiting:
+            raise ValueError(f"mandate {mandate_id!r} has no Diagnosis waiting for a Challenge")
+        conn.execute(
+            "INSERT INTO challenges (mandate_id, verdict, reasons, ran, challenger) VALUES (?, ?, ?, ?, ?)",
+            (mandate_id, verdict, reasons, ran, challenger_id),
+        )
+        returned = verdict == "DISPUTED" and conn.execute(
+            "SELECT COUNT(*) FROM challenges WHERE mandate_id = ? AND verdict = 'DISPUTED'", (mandate_id,)
+        ).fetchone()[0] == 1
+        conn.execute(
+            "UPDATE mandates SET awaiting_challenge = 0"
+            + ("" if returned else ", status = 'PLANNING', blocked_on_ceo = 1, pauses = pauses + 1") + " WHERE id = ?",
+            (mandate_id,),
+        )
+    if returned and ticket:  # a mandate granted before grants named an investigation ticket has none
+        store_message(db_path, challenger, investigator, "DISPUTED", f"{reasons}\nWhat was run: {ran}", ticket=ticket)
+        queue_turn(db_path, investigator, thread=thread_key(ticket, None))
 
 
 def diagnosis_gates(db_path: Path) -> list[dict]:
-    """Mandates paused at the Diagnosis gate, awaiting the CEO."""
+    """Mandates paused at the Diagnosis gate, awaiting the CEO, each with the Challenge of its Diagnosis:
+    ``verdict``, ``reasons``, ``ran`` and ``challenger``."""
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, diagnosis_path FROM mandates "
-            "WHERE blocked_on_ceo = 1 AND status = 'PLANNING' ORDER BY granted_at, rowid"
+            "SELECT m.id, m.diagnosis_path, c.verdict, c.reasons, c.ran, c.challenger FROM mandates m "
+            "LEFT JOIN challenges c ON c.id = (SELECT MAX(id) FROM challenges WHERE mandate_id = m.id) "
+            "WHERE m.blocked_on_ceo = 1 AND m.status = 'PLANNING' ORDER BY m.granted_at, m.rowid"
         ).fetchall()
     return [dict(r) for r in rows]
 

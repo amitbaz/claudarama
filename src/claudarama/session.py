@@ -83,10 +83,19 @@ def _review(gates: list[dict], describe, resolve, ask) -> bool:
 # Each kind of gate is its waiting gates, what the CEO is shown of one, and how an answer resolves it.
 
 
+def _describe_diagnosis(gate: dict) -> str:
+    """The Diagnosis, and beside it its Challenge."""
+    challenge = (  # a Diagnosis that was paused here before Challenges existed has none
+        f"Challenge by {shown(gate['challenger'])}: {gate['verdict']}: {gate['reasons']}\nWhat was run: {gate['ran']}"
+        if gate["verdict"] else "Challenge: none recorded"
+    )
+    return f"Diagnosis gate: mandate {gate['id']!r}, diagnosis at {gate['diagnosis_path']}\n{challenge}"
+
+
 def _diagnosis(db_path: Path):
     return (
         diagnosis_gates(db_path),
-        lambda g: f"Diagnosis gate: mandate {g['id']!r}, diagnosis at {g['diagnosis_path']}",
+        _describe_diagnosis,
         lambda mandate, ok, reason: resolve_diagnosis_gate(db_path, mandate, ok, reason),
     )
 
@@ -108,7 +117,7 @@ def _lesson(db_path: Path):
 
 
 def review_diagnosis_gates(db_path: Path, ask=input) -> bool:
-    """Ask about each paused Diagnosis. True when any is left for discussion."""
+    """Ask about each paused Diagnosis, shown with its Challenge. True when any is left for discussion."""
     return _review(*_diagnosis(db_path), ask)
 
 

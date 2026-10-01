@@ -17,8 +17,6 @@ from claudarama.session import review_epic_gates
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
-    with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
     grant_mandate(path, "M1")
     submit_diagnosis(path, "M1", "d.md")
     resolve_diagnosis_gate(path, "M1", approved=True)
@@ -47,7 +45,7 @@ def test_epic_ties_tickets_pauses_mandate_and_scheduler_skips_them(db):
     _submit(db)
     assert _state(db) == ("EXECUTING", 1)
     assert _tickets(db) == ["T1", "T2"]
-    queue_turn(db, "p1", thread="ticket:T1")
+    queue_turn(db, "fullstack-engineer", thread="ticket:T1")
     assert get_queued_turns(db) == []
 
 
@@ -67,7 +65,7 @@ def test_yes_unblocks_and_work_can_start(db):
     _submit(db)
     assert not review_epic_gates(db, ask=lambda _: "yes")
     assert _state(db) == ("EXECUTING", 0)
-    queue_turn(db, "p1", thread="ticket:T1")
+    queue_turn(db, "fullstack-engineer", thread="ticket:T1")
     assert len(get_queued_turns(db)) == 1
 
 

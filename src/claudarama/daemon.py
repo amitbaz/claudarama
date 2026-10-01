@@ -9,14 +9,17 @@ from mcp.server.fastmcp import Context, FastMCP
 from claudarama.mirror import Gh, run_gh, sync
 
 from claudarama.db import (
+    CAST,
     Identity,
     get_office_db_path,
+    get_person_by_role,
     grant_mandate,
     init_db,
     mark_turn_done,
     queue_turn,
     register_ticket,
     resolve_token,
+    shown,
     store_message,
     submit_diagnosis,
     submit_epic,
@@ -57,6 +60,8 @@ def make_send_tool(db_path: Path) -> Callable:
     ) -> dict:
         """Send a message from the caller to receiver and end the caller's turn.
 
+        The receiver is addressed by Role (*receiver_id*); an unknown Role is refused.
+
         The sender is the caller's identity, never an argument. The owner
         sends as ``ceo``; a ``talk`` session has no turn to end.
 
@@ -72,6 +77,11 @@ def make_send_tool(db_path: Path) -> Callable:
         Returns ``{"ok": True, "new_turn_id": "<uuid>"}`` on success.
         """
         thread = thread_key(ticket, topic)  # refuse before touching the DB
+        receiver = get_person_by_role(db_path, receiver_id)
+        if receiver is None:
+            raise ValueError(
+                f"unknown Role {receiver_id!r}; the Roles are: {', '.join(map(shown, CAST))}"
+            )
         store_message(
             db_path,
             sender=identity.person_id or "ceo",
@@ -88,8 +98,8 @@ def make_send_tool(db_path: Path) -> Callable:
             from claudarama.supervisor import load_org_settings
             settings = load_org_settings(db_path.parent)
             new_turn_id = queue_turn(
-                db_path, 
-                person_id=receiver_id, 
+                db_path,
+                person_id=receiver["id"],
                 thread=thread, 
                 delay_minutes=settings.batch_window_minutes
             )
@@ -132,7 +142,7 @@ def create_mcp_server(
         ticket: str | None = None,
         topic: str | None = None,
     ) -> dict:
-        """Send a message and end your turn. The sender is taken from your token."""
+        """Send a message to a Role (receiver_id) and end your turn. The sender is taken from your token."""
         identity = authenticate(db_path, _token_of(ctx))
         return await send(identity, receiver_id, msg_type, body, ticket, topic)
 
@@ -196,7 +206,8 @@ def create_mcp_server(
         pull_request: int, head_commit: str, verdict: str, diagnosis_path: str, command: str, ctx: Context
     ) -> dict:
         """Log a Ship-check verdict (SHIP or FAIL) for a PR's head commit, with the Diagnosis path
-        and the verification command you ran. The reviewer is taken from your token."""
+        and the verification command you ran. The reviewer is taken from your token; only the
+        engineering-lead's verdict is accepted."""
         from claudarama.db import record_verdict
         identity = authenticate(db_path, _token_of(ctx))
         reviewer_id = identity.person_id or "ceo"

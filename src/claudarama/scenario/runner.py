@@ -345,7 +345,6 @@ def evaluate_against_ref(
 
 import json
 import tempfile
-import sqlite3
 from typing import Optional, Any
 from pathlib import Path
 
@@ -365,15 +364,8 @@ class ScenarioRunner:
         with tempfile.TemporaryDirectory() as temp_dir_name:
             tmp_path = Path(temp_dir_name)
             db_path = tmp_path / "office.db"
-            init_db(db_path)
-            
-            # Seed the person
-            with sqlite3.connect(db_path) as conn:
-                conn.execute(
-                    "INSERT INTO people (id, name, role) VALUES (?, ?, ?)",
-                    (scenario.role, scenario.role.capitalize(), scenario.role),
-                )
-            
+            init_db(db_path)  # seeds the fixed cast
+
             pack_dir = tmp_path / "pack"
             pack_dir.mkdir()
             (pack_dir / "company.md").write_text("Test Company")

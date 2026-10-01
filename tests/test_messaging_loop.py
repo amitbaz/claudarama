@@ -41,25 +41,9 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _seed_person(
-    db_path: Path,
-    person_id: str = "p1",
-    name: str = "Bender",
-    role: str = "fullstack-engineer",
-) -> str:
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "INSERT INTO people (id, name, role) VALUES (?, ?, ?)",
-            (person_id, name, role),
-        )
-    return person_id
-
-
 def _setup_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "office.db"
     init_db(db_path)
-    _seed_person(db_path, "p1", name="Bender", role="fullstack-engineer")
-    _seed_person(db_path, "p2", name="Leela", role="cpo")
     return db_path
 
 
@@ -220,13 +204,13 @@ class TestSendMCPTool:
         from claudarama.daemon import make_send_tool
 
         db_path = _setup_db(tmp_path)
-        sender_turn_id = queue_turn(db_path, person_id="p1")
+        sender_turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         send = make_send_tool(db_path)
 
         result = asyncio.run(
             send(
-                identity=Identity("turn", "p1", sender_turn_id),
-                receiver_id="p2",
+                identity=Identity("turn", "fullstack-engineer", sender_turn_id),
+                receiver_id="pm",
                 msg_type="DONE",
                 body="Task complete",
                 ticket="T-1",
@@ -237,7 +221,7 @@ class TestSendMCPTool:
 
         with _connect(db_path) as conn:
             row = conn.execute(
-                "SELECT sender, receiver, body FROM messages WHERE sender = 'p1'"
+                "SELECT sender, receiver, body FROM messages WHERE sender = 'fullstack-engineer'"
             ).fetchone()
         assert row is not None
         assert row["body"] == "Task complete"
@@ -247,13 +231,13 @@ class TestSendMCPTool:
         from claudarama.daemon import make_send_tool
 
         db_path = _setup_db(tmp_path)
-        sender_turn_id = queue_turn(db_path, person_id="p1")
+        sender_turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         send = make_send_tool(db_path)
 
         asyncio.run(
             send(
-                identity=Identity("turn", "p1", sender_turn_id),
-                receiver_id="p2",
+                identity=Identity("turn", "fullstack-engineer", sender_turn_id),
+                receiver_id="pm",
                 msg_type="DONE",
                 body="Task complete",
                 ticket="T-1",
@@ -272,13 +256,13 @@ class TestSendMCPTool:
         from claudarama.daemon import make_send_tool
 
         db_path = _setup_db(tmp_path)
-        sender_turn_id = queue_turn(db_path, person_id="p1")
+        sender_turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         send = make_send_tool(db_path)
 
         result = asyncio.run(
             send(
-                identity=Identity("turn", "p1", sender_turn_id),
-                receiver_id="p2",
+                identity=Identity("turn", "fullstack-engineer", sender_turn_id),
+                receiver_id="pm",
                 msg_type="DONE",
                 body="Task complete",
                 ticket="T-1",
@@ -301,13 +285,13 @@ class TestSendMCPTool:
         from claudarama.db import get_thread
 
         db_path = _setup_db(tmp_path)
-        sender_turn_id = queue_turn(db_path, person_id="p1")
+        sender_turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         send = make_send_tool(db_path)
 
         result = asyncio.run(
             send(
-                identity=Identity("turn", "p1", sender_turn_id),
-                receiver_id="p2",
+                identity=Identity("turn", "fullstack-engineer", sender_turn_id),
+                receiver_id="pm",
                 msg_type="DONE",
                 body="Here is the completed work",
                 ticket="T-1",
@@ -332,13 +316,13 @@ class TestSendMCPTool:
         from claudarama.daemon import make_send_tool
         
         db_path = _setup_db(tmp_path)
-        sender_turn_id = queue_turn(db_path, person_id="p1")
+        sender_turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         send = make_send_tool(db_path)
         
         result = asyncio.run(
             send(
-                identity=Identity("turn", "p1", sender_turn_id),
-                receiver_id="p2",
+                identity=Identity("turn", "fullstack-engineer", sender_turn_id),
+                receiver_id="pm",
                 msg_type="FYI",
                 body="Just letting you know",
                 ticket="T-1",
@@ -347,20 +331,20 @@ class TestSendMCPTool:
         assert result.get("new_turn_id") is None
         
         with _connect(db_path) as conn:
-            queued = conn.execute("SELECT COUNT(*) FROM turns WHERE person_id = 'p2'").fetchone()[0]
+            queued = conn.execute("SELECT COUNT(*) FROM turns WHERE person_id = 'pm'").fetchone()[0]
         assert queued == 0
 
     def test_send_tool_batching_reuses_queued_turn(self, tmp_path):
         from claudarama.daemon import make_send_tool
         
         db_path = _setup_db(tmp_path)
-        sender_turn_id = queue_turn(db_path, person_id="p1")
+        sender_turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         send = make_send_tool(db_path)
         
         res1 = asyncio.run(
             send(
                 identity=Identity("owner"),
-                receiver_id="p2",
+                receiver_id="pm",
                 msg_type="QUESTION",
                 body="First?",
                 ticket="T-1",
@@ -371,7 +355,7 @@ class TestSendMCPTool:
         res2 = asyncio.run(
             send(
                 identity=Identity("owner"),
-                receiver_id="p2",
+                receiver_id="pm",
                 msg_type="DONE",
                 body="Second",
                 ticket="T-1",

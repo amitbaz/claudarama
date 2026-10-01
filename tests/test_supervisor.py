@@ -25,15 +25,6 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _seed_person(db_path: Path, person_id: str = "p1", name: str = "Bender", role: str = "fullstack-engineer") -> str:
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "INSERT INTO people (id, name, role) VALUES (?, ?, ?)",
-            (person_id, name, role),
-        )
-    return person_id
-
-
 class TestTurnLifecycle:
     """Turn lifecycle through the DB public functions."""
 
@@ -42,9 +33,8 @@ class TestTurnLifecycle:
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
-        _seed_person(db_path, "p1")
 
-        turn_id = queue_turn(db_path, person_id="p1")
+        turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         assert turn_id  # non-empty string
 
         with _connect(db_path) as conn:
@@ -56,29 +46,26 @@ class TestTurnLifecycle:
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
-        _seed_person(db_path, "p1")
-        _seed_person(db_path, "p2", name="Leela", role="cpo")
 
-        queue_turn(db_path, person_id="p1")
-        queue_turn(db_path, person_id="p2")
+        queue_turn(db_path, person_id="fullstack-engineer")
+        queue_turn(db_path, person_id="pm")
 
         # Manually mark one as running to verify it's excluded
         with sqlite3.connect(db_path) as conn:
-            first = conn.execute("SELECT id FROM turns WHERE person_id = 'p1'").fetchone()[0]
+            first = conn.execute("SELECT id FROM turns WHERE person_id = 'fullstack-engineer'").fetchone()[0]
             conn.execute("UPDATE turns SET status = 'running' WHERE id = ?", (first,))
 
         queued = get_queued_turns(db_path)
         assert len(queued) == 1
-        assert queued[0]["person_id"] == "p2"
+        assert queued[0]["person_id"] == "pm"
 
     def test_mark_turn_done_updates_status_and_ended_at(self, tmp_path):
         from claudarama.db import mark_turn_done, queue_turn
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
-        _seed_person(db_path, "p1")
 
-        turn_id = queue_turn(db_path, person_id="p1")
+        turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         mark_turn_done(db_path, turn_id)
 
         with _connect(db_path) as conn:
@@ -91,9 +78,8 @@ class TestTurnLifecycle:
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
-        _seed_person(db_path, "p1")
 
-        turn_id = queue_turn(db_path, person_id="p1")
+        turn_id = queue_turn(db_path, person_id="fullstack-engineer")
         mark_turn_failed(db_path, turn_id)
 
         with _connect(db_path) as conn:
@@ -193,7 +179,6 @@ class TestSupervisor:
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
-        _seed_person(db_path, "p1", role="fullstack-engineer")
 
         pack = tmp_path / ".claudarama"
         pack.mkdir()
@@ -208,7 +193,7 @@ class TestSupervisor:
         if mock_script is None:
             mock_script = _make_mock_claude(tmp_path)
 
-        turn_id = queue_turn(db_path, person_id="p1", kind="ritual")
+        turn_id = queue_turn(db_path, person_id="fullstack-engineer", kind="ritual")
 
         return db_path, pack, output_dir, mock_script, turn_id
 
@@ -370,7 +355,7 @@ class TestSupervisor:
         
         # p1 has turn_id queued.
         # queue another turn for p1
-        turn2 = queue_turn(db_path, "p1", kind="work")
+        turn2 = queue_turn(db_path, "fullstack-engineer", kind="work")
         
         # Make p1 have a running turn
         mark_turn_running(db_path, turn_id)
@@ -389,7 +374,7 @@ class TestSupervisor:
             conn.execute("UPDATE turns SET status = 'done' WHERE id = ?", (turn_id,))
             
         # Make p1 have an open session
-        start_session(db_path, "p1")
+        start_session(db_path, "fullstack-engineer")
         assert sup.poll() == 0
 
 
@@ -402,12 +387,11 @@ class TestBuildLaunch:
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
-        _seed_person(db_path, "p1", role="fullstack-engineer")
         pack = tmp_path / ".claudarama"
         (pack / "profiles").mkdir(parents=True)
         (pack / "company.md").write_text("# Test Co\n")
         output_dir = tmp_path / "output"
-        turn_id = queue_turn(db_path, person_id="p1", model="opus", branch="feat/x")
+        turn_id = queue_turn(db_path, person_id="fullstack-engineer", model="opus", branch="feat/x")
         sup = Supervisor(db_path, pack, output_dir, claude_binary="claude")
 
         launch = sup.build_launch(get_turn(db_path, turn_id))
@@ -449,8 +433,7 @@ def test_supervisor_records_usage(tmp_path):
     
     db_path = tmp_path / "office.db"
     init_db(db_path)
-    _seed_person(db_path, "p1", "Bender", "assistant")
-    turn_id = queue_turn(db_path, "p1")
+    turn_id = queue_turn(db_path, "assistant")
     
     pack = tmp_path / ".claudarama"
     pack.mkdir()
@@ -483,14 +466,11 @@ def test_supervisor_records_usage(tmp_path):
 
         db_path = tmp_path / "office.db"
         init_db(db_path)
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Alice', 'dev')")
-
         grant_mandate(db_path, "m1")
         register_ticket(db_path, "123", "m1", hard=True)
-        set_working_note(db_path, "p1", "123", "Important note!")
+        set_working_note(db_path, "fullstack-engineer", "123", "Important note!")
 
-        turn_id = queue_turn(db_path, "p1", thread="ticket:123", model="sonnet")  # Should be overridden to opus
+        turn_id = queue_turn(db_path, "fullstack-engineer", thread="ticket:123", model="sonnet")  # Should be overridden to opus
         turn = get_turn(db_path, turn_id)
 
         pack_dir = tmp_path / "pack"
@@ -511,12 +491,11 @@ def test_supervisor_resumes_conversation(tmp_path):
     import sqlite3
     db_path = tmp_path / ".db"
     init_db(db_path)
-    _seed_person(db_path, "p1")
 
     (tmp_path / "org.yaml").write_text("resume_per_ticket: true")
-    save_ticket_conversation(db_path, "p1", "45", "sess-12345")
+    save_ticket_conversation(db_path, "fullstack-engineer", "45", "sess-12345")
 
-    turn_id = queue_turn(db_path, "p1", thread="ticket:45")
+    turn_id = queue_turn(db_path, "fullstack-engineer", thread="ticket:45")
     turn = get_turn(db_path, turn_id)
 
     supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo", host="127.0.0.1", port=8000)
@@ -535,9 +514,8 @@ def test_record_usage_saves_ticket_session(tmp_path):
     import sqlite3
     db_path = tmp_path / ".db"
     init_db(db_path)
-    _seed_person(db_path, "p1")
 
-    turn_id = queue_turn(db_path, "p1", thread="ticket:45")
+    turn_id = queue_turn(db_path, "fullstack-engineer", thread="ticket:45")
     turn = get_turn(db_path, turn_id)
 
     supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, host="127.0.0.1", port=8000)
@@ -546,7 +524,7 @@ def test_record_usage_saves_ticket_session(tmp_path):
     
     supervisor._record_usage(turn_id, turn, output_file)
     
-    assert get_ticket_conversation(db_path, "p1", "45") == "sess-new"
+    assert get_ticket_conversation(db_path, "fullstack-engineer", "45") == "sess-new"
 
 def test_supervisor_does_not_resume_when_switch_off(tmp_path):
     import json
@@ -555,12 +533,11 @@ def test_supervisor_does_not_resume_when_switch_off(tmp_path):
     import sqlite3
     db_path = tmp_path / ".db"
     init_db(db_path)
-    _seed_person(db_path, "p1")
 
     (tmp_path / "org.yaml").write_text("resume_per_ticket: false")
-    save_ticket_conversation(db_path, "p1", "45", "sess-12345")
+    save_ticket_conversation(db_path, "fullstack-engineer", "45", "sess-12345")
 
-    turn_id = queue_turn(db_path, "p1", thread="ticket:45")
+    turn_id = queue_turn(db_path, "fullstack-engineer", thread="ticket:45")
     turn = get_turn(db_path, turn_id)
 
     supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo", host="127.0.0.1", port=8000)

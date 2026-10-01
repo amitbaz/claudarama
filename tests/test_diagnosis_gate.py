@@ -14,8 +14,6 @@ from claudarama.session import review_diagnosis_gates
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
-    with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
     grant_mandate(path, "M1")
     register_ticket(path, "T1", "M1")
     return path
@@ -36,7 +34,7 @@ def _state(db):
 
 
 def test_diagnosis_pauses_mandate_and_scheduler_skips_it(db):
-    queue_turn(db, "p1", thread="ticket:T1")
+    queue_turn(db, "fullstack-engineer", thread="ticket:T1")
     assert len(get_queued_turns(db)) == 1
     _submit(db)
     assert _state(db) == ("PLANNING", 1, "d.md")
@@ -46,7 +44,7 @@ def test_diagnosis_pauses_mandate_and_scheduler_skips_it(db):
 
 
 def test_yes_unblocks(db):
-    queue_turn(db, "p1", thread="ticket:T1")
+    queue_turn(db, "fullstack-engineer", thread="ticket:T1")
     _submit(db)
     assert not review_diagnosis_gates(db, ask=lambda _: "yes")
     assert _state(db)[:2] == ("PLANNING", 0)  # planning begins; the Epic gate comes next

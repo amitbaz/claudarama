@@ -21,8 +21,8 @@ def print_status(project_name: str | None = None) -> int:
         
         _print_section(
             conn, "Person",
-            "SELECT p.name as key, sum(t.input_tokens) as i, sum(t.output_tokens) as o, sum(t.cost) as c "
-            "FROM turns t JOIN people p ON t.person_id = p.id WHERE t.cost IS NOT NULL GROUP BY p.name"
+            "SELECT p.role || ' (' || p.name || ')' as key, sum(t.input_tokens) as i, sum(t.output_tokens) as o, sum(t.cost) as c "
+            "FROM turns t JOIN people p ON t.person_id = p.id WHERE t.cost IS NOT NULL GROUP BY p.id"
         )
             
         _print_section(

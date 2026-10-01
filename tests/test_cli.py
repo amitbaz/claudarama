@@ -168,10 +168,5 @@ def test_cli_open_invokes_claude_session():
 
     with patch("claudarama.session.open_ceo_session", return_value=0) as mock_open:
         assert cli.main(["open"]) == 0
-        mock_open.assert_called_once_with()
-
-
-
-
-
+        mock_open.assert_called_once_with(attach=False)
 

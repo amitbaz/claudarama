@@ -1,0 +1,14 @@
+{
+  "name": "claudarama",
+  "description": "Claudarama: an AI startup for a software project, run from Claude Code.",
+  "owner": {
+    "name": "Amit Baz"
+  },
+  "plugins": [
+    {
+      "name": "claudarama",
+      "source": "./",
+      "description": "Runs an AI startup for a software project. You are the CEO: you grant mandates and answer the gates, and the office does the rest."
+    }
+  ]
+}

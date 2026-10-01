@@ -1,0 +1,19 @@
+{
+  "name": "claudarama",
+  "description": "Runs an AI startup for a software project. You are the CEO: you grant mandates and answer the gates, and the office does the rest.",
+  "author": {
+    "name": "Amit Baz"
+  },
+  "repository": "https://github.com/amitbaz/claudarama",
+  "mcpServers": {
+    "claudarama": {
+      "command": "uv",
+      "args": [
+        "run", "--quiet",
+        "--directory", "${CLAUDE_PROJECT_DIR}",
+        "--project", "${CLAUDE_PLUGIN_ROOT}",
+        "python", "-m", "claudarama.daemon"
+      ]
+    }
+  }
+}

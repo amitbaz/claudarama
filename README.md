@@ -4,6 +4,48 @@ Claudarama is a Claude Code plugin that turns your codebase into an autonomous A
 
 Instead of micro-managing an AI coding assistant by prescribing every task, you set the goals, grant the mandates, and approve work at strict decision gates. Claudarama handles the rest.
 
+## Install and first run
+
+Claudarama has two doors with the same actions behind both: a Claude Code plugin, used from inside a session, and a terminal command. Install either, or both.
+
+### Before you start
+
+- **Claude Code**, signed in.
+- **[uv](https://docs.astral.sh/uv/)**. Both doors run through it; it supplies Python and the dependencies.
+- **A project on GitHub.** The office keeps its tickets as GitHub issues, groups each Mandate's tickets under a milestone, and delivers work as pull requests that you merge at the PR gate. So the project must be a git repository cloned from GitHub, with Issues enabled.
+- **[`gh`](https://cli.github.com), signed in** (`gh auth login`) as an account that can write to that repository: create milestones, edit issues, open and merge pull requests. `setup` stops with the fix when `gh` is missing or signed out.
+
+### The plugin door
+
+Inside Claude Code, add this repository as a marketplace and install the plugin from it:
+
+```
+/plugin marketplace add amitbaz/claudarama
+/plugin install claudarama@claudarama
+```
+
+From a shell the same two steps are `claude plugin marketplace add amitbaz/claudarama` and `claude plugin install claudarama@claudarama`. Add `--scope project` to the install to enable the plugin in one project only.
+
+Then, in a Claude Code session in your project:
+
+1. `/claudarama:setup` scaffolds the pack, the project's `.claudarama/` directory. Commit it.
+2. `/claudarama:open` opens the office. The session becomes the CEO's Session and Claude becomes the Assistant. At the first open the Assistant interviews you for the charter and confirms the project's test commands; after that, describe a problem and the Assistant shapes it into a Mandate for you to grant.
+3. `/claudarama:status` shows what the office has used so far.
+
+The office works while that session is open. Closing it pauses the office, and the next `/claudarama:open` picks the work up again.
+
+### The terminal door
+
+```
+uv tool install git+https://github.com/amitbaz/claudarama
+```
+
+Then, in your project:
+
+1. `claudarama setup` scaffolds the pack. Commit it.
+2. `claudarama open` starts Claude Code as the CEO's Session, with the Assistant ready.
+3. `claudarama status` shows what the office has used so far.
+
 ## Foundational Documents
 
 To understand how Claudarama works, read these four pillars:

@@ -5,10 +5,12 @@ from pathlib import Path
 
 from claudarama.brief import build_brief
 from claudarama.db import (
+    create_attach_code,
     diagnosis_gates,
     epic_gates,
     get_office_db_path,
     get_owner_token,
+    get_project_root,
     init_db,
     lesson_gates,
     mandates_of_tickets,
@@ -20,6 +22,7 @@ from claudarama.db import (
     tickets_by_mandate,
 )
 from claudarama.mirror import Gh, run_gh
+from claudarama.scaffold import PACK_DIR_NAME
 
 
 def _run_claude(cmd: list[str], claude_binary: str) -> int:
@@ -146,14 +149,24 @@ def review_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> None:
 
 
 def open_ceo_session(
-    claude_binary: str = "claude", db_path: Path | None = None, pack_dir: Path | None = None
+    claude_binary: str = "claude", db_path: Path | None = None, pack_dir: Path | None = None,
+    attach: bool = False,
 ) -> int:
-    """Launch the CEO's Session with the office server attached, holding the owner token
-    and the Assistant's brief."""
+    """Open the office: the CEO's Session, with the Assistant's brief and the office server
+    holding the owner token.
+
+    From the terminal this launches the Session. With *attach* (the plugin door) the Session
+    is the Claude Code session this runs in: it prints the brief for that session to read, and
+    the code with which the session makes the office server the plugin declared the owner's.
+    """
     db_path = db_path or get_office_db_path()
     init_db(db_path)
+    # The pack of the main checkout, where the Session's server finds it, from any subdirectory or worktree.
+    brief = build_brief(pack_dir or get_project_root() / PACK_DIR_NAME, "assistant")
+    if attach:
+        print(f"{brief}\n\nAttach code: {create_attach_code(db_path)}")
+        return 0
     if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
         review_gates(db_path)
     config = mcp_config(db_path, get_owner_token(db_path))
-    brief = build_brief(pack_dir or Path.cwd() / ".claudarama", "assistant")
     return _run_claude([claude_binary, "--mcp-config", config, "--append-system-prompt", brief], claude_binary)

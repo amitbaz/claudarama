@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from claudarama.brief import build_brief
 from claudarama.db import (
     diagnosis_gates,
     epic_gates,
@@ -135,8 +136,11 @@ def review_lesson_gates(db_path: Path, ask=input) -> bool:
     )
 
 
-def open_ceo_session(claude_binary: str = "claude", db_path: Path | None = None) -> int:
-    """Launch the CEO's Session with the office server attached, holding the owner token."""
+def open_ceo_session(
+    claude_binary: str = "claude", db_path: Path | None = None, pack_dir: Path | None = None
+) -> int:
+    """Launch the CEO's Session with the office server attached, holding the owner token
+    and the Assistant's brief."""
     db_path = db_path or get_office_db_path()
     init_db(db_path)
     if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
@@ -146,4 +150,5 @@ def open_ceo_session(claude_binary: str = "claude", db_path: Path | None = None)
         advance_to_learning(db_path)
         review_lesson_gates(db_path)
     config = mcp_config(db_path, get_owner_token(db_path))
-    return _run_claude([claude_binary, "--mcp-config", config], claude_binary)
+    brief = build_brief(pack_dir or Path.cwd() / ".claudarama", "assistant")
+    return _run_claude([claude_binary, "--mcp-config", config, "--append-system-prompt", brief], claude_binary)

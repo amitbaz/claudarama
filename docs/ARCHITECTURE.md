@@ -8,7 +8,7 @@ To ensure Claudarama can run a software company for *any* project without losing
 
 ### The Core (`claudarama` plugin)
 The Core is the project-agnostic engine, located in this repository. It contains:
-*   The generic Role definitions (PM, Engineering Lead, Researcher, etc.).
+*   The generic Role definitions: one core role file per Role (`src/claudarama/roles/<role>.md`), each in the same seven parts, and the shared office rules every brief loads (`src/claudarama/office-rules.md`).
 *   The Ritual mechanisms and office skills.
 *   The office server and database schema.
 *   The gate hook and enforcement logic.

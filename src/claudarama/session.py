@@ -52,7 +52,8 @@ def open_ceo_session(
     """Launch an interactive Claude session holding the owner token."""
     db_path = db_path or get_office_db_path()
     init_db(db_path)
-    review_diagnosis_gates(db_path)  # DISCUSS leaves the gate paused for the session
+    if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
+        review_diagnosis_gates(db_path)
     config = mcp_config(host, port, get_owner_token(db_path))
     return _run_claude([claude_binary, "--mcp-config", config], claude_binary)
 

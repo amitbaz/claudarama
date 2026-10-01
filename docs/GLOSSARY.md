@@ -53,5 +53,11 @@ A day on which the CEO opened the office. Rituals count office days, never calen
 **Gate**:
 An action only the CEO may take or approve.
 
+**Diagnosis**:
+The investigators' written finding on a granted mandate. Submitting it moves the mandate from INVESTIGATING to PLANNING and pauses it at the Diagnosis gate.
+
+**Diagnosis gate**:
+A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis. YES moves the mandate to EXECUTING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
+
 **Gate hook**:
 The PreToolUse hook that checks every tool call of a turn against the turn's allowlist and denies what is not on it. It enforces the allowlist; it is not itself a Gate.

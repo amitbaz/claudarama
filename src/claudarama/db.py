@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS tokens (
 CREATE TABLE IF NOT EXISTS mandates (
     id TEXT PRIMARY KEY,
     granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status TEXT NOT NULL DEFAULT 'INVESTIGATING',  -- PROPOSED, INVESTIGATING, PLANNING, EXECUTING, LEARNING, CLOSED
+    status TEXT NOT NULL DEFAULT 'INVESTIGATING'
+        CHECK (status IN ('PROPOSED', 'INVESTIGATING', 'PLANNING', 'EXECUTING', 'LEARNING', 'CLOSED')),
     blocked_on_ceo INTEGER NOT NULL DEFAULT 0,
     diagnosis_path TEXT,
     lesson_path TEXT
@@ -365,12 +366,12 @@ def diagnosis_gates(db_path: Path) -> list[dict]:
 
 
 def resolve_diagnosis_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
-    """YES unblocks the mandate; NO sends it back to INVESTIGATING, unblocked."""
+    """YES unblocks the mandate into EXECUTING; NO sends it back to INVESTIGATING, unblocked."""
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
             "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'PLANNING'",
-            ("PLANNING" if approved else "INVESTIGATING", mandate_id),
+            ("EXECUTING" if approved else "INVESTIGATING", mandate_id),
         )
 
 

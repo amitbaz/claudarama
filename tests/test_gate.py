@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from claudarama.db import get_turn, init_db, queue_turn
-from claudarama.gate import CORE_DENY, build_allowlist
+from claudarama.gate import CORE_DENY, build_allowlist, write_turn_settings
 from claudarama.supervisor import Supervisor
 
 
@@ -172,33 +172,51 @@ def test_every_turn_launches_with_generated_settings_and_dontask(tmp_path):
     allow, deny = build_allowlist(pack)
     assert settings["permissions"] == {"allow": allow, "deny": deny}
     hook = settings["hooks"]["PreToolUse"][0]["hooks"][0]
-    assert hook["command"].endswith("-m claudarama.gate")
+    assert "--allowedTools" not in cmd
     assert launch.env["CLAUDARAMA_OFFICE"] == str(settings_path)
 
-def test_pr_merge_requires_verdict(tmp_path, monkeypatch):
-    import json
-    import sqlite3
-    from claudarama.gate import _check_pr_merge
-    from claudarama.db import init_db
 
-    db_path = tmp_path / "office.db"
-    init_db(db_path)
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("INSERT INTO people (id, name, role, level, manager_id) VALUES ('u1', 'Dev', 'eng', 2, 'm1')")
-        conn.execute("INSERT INTO people (id, name, role, level) VALUES ('m1', 'Lead', 'lead', 3)")
-        conn.execute("INSERT INTO turns (id, person_id, status) VALUES ('t1', 'u1', 'running')")
+# ---------------------------------------------------------------------------
+# The hook as Claude Code runs it: the generated command line, in a bare environment
+# ---------------------------------------------------------------------------
 
-    monkeypatch.setattr("claudarama.db.get_office_db_path", lambda: db_path)
-    monkeypatch.setattr("subprocess.check_output", lambda cmd, **k: json.dumps({"number": 123, "headRefOid": "abc"}).encode())
 
-    # No verdict
-    ok, msg = _check_pr_merge("gh pr merge 123", str(tmp_path / "t1.settings.json"))
-    assert not ok and "denied" in msg
+def _run_hook_command(tmp_path: Path, command: str, settings: dict, payload: dict):
+    settings_file = tmp_path / "t1.settings.json"
+    settings_file.write_text(json.dumps(settings))
+    return subprocess.run(
+        ["sh", "-c", command], input=json.dumps(payload), capture_output=True, text=True,
+        env={"PATH": "/usr/bin:/bin", "CLAUDARAMA_OFFICE": str(settings_file)},  # no PYTHONPATH: nothing but the install
+    )
 
-    # Add verdict
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("INSERT INTO verdicts (pull_request, head_commit, reviewer_id, verdict) VALUES (123, 'abc', 'm1', 'SHIP')")
 
-    ok, msg = _check_pr_merge("gh pr merge 123", str(tmp_path / "t1.settings.json"))
-    assert ok
+def _generated(tmp_path: Path) -> tuple[str, dict]:
+    path = tmp_path / "gen.settings.json"
+    write_turn_settings(_pack(tmp_path, STACK, GATES), path)
+    settings = json.loads(path.read_text())
+    return settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"], settings
 
+
+def test_generated_hook_runs_without_the_checkout_on_the_path(tmp_path):
+    command, settings = _generated(tmp_path)
+    bash = lambda c: {"tool_name": "Bash", "tool_input": {"command": c}}
+    ok = _run_hook_command(tmp_path, command, settings, bash("git status"))
+    assert json.loads(ok.stdout)["hookSpecificOutput"]["permissionDecision"] == "allow"
+    bad = _run_hook_command(tmp_path, command, settings, bash("curl http://x"))
+    out = json.loads(bad.stdout)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and "curl" in out["permissionDecisionReason"]
+
+
+def test_internal_error_blocks_with_a_reason_the_model_sees(tmp_path):
+    command, _ = _generated(tmp_path)
+    r = _run_hook_command(tmp_path, command, {"permissions": {}}, {"tool_name": "Bash", "tool_input": {"command": "git status"}})
+    out = json.loads(r.stdout)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and "gate hook error" in out["permissionDecisionReason"]
+
+
+def test_hook_that_cannot_start_exits_2_so_claude_code_blocks(tmp_path):
+    command, settings = _generated(tmp_path)
+    broken = command.replace("gate.py", "no_such_gate.py")
+    assert broken != command
+    r = _run_hook_command(tmp_path, broken, settings, {"tool_name": "Read", "tool_input": {}})
+    assert r.returncode == 2 and "gate hook failed" in r.stderr

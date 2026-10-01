@@ -7,13 +7,31 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# The fixed cast: every Role and the name of its one Person. A Person's identifier is their Role.
+CAST = {
+    "assistant": "Nibbler",
+    "pm": "Hermes",
+    "engineering-lead": "Kif",
+    "fullstack-engineer": "Bender",
+    "frontend-engineer": "Fry",
+    "database-architect": "Scruffy",
+    "designer": "Zoidberg",
+    "prompt-engineer": "Cubert",
+    "eval-engineer": "Morbo",
+    "researcher": "Amy",
+}
+
+
+def shown(role: str) -> str:
+    """How a Person is shown: the Role first, the name beside it. Anyone else (the CEO) as given."""
+    return f"{role} ({CAST[role]})" if role in CAST else role
+
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS people (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     role TEXT NOT NULL,
-    level INTEGER NOT NULL DEFAULT 1,
-    manager_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -152,6 +170,13 @@ def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        # Offices created before the fixed cast carry level and manager; they are gone.
+        for col in {r[1] for r in conn.execute("PRAGMA table_info(people)")} & {"level", "manager_id"}:
+            conn.execute(f"ALTER TABLE people DROP COLUMN {col}")
+        conn.executemany(
+            "INSERT OR IGNORE INTO people (id, name, role) VALUES (?, ?, ?)",
+            [(role, name, role) for role, name in CAST.items()],
+        )
         # Databases created before messaging/escalation/threads lack these columns.
         cols = {r[1] for r in conn.execute("PRAGMA table_info(turns)")}
         for col, decl in (
@@ -634,17 +659,25 @@ def resolve_token(db_path: Path, token: str | None) -> Identity | None:
     return Identity("turn", row["person_id"], row["turn_id"], ticket)
 
 
-def get_person_by_name(db_path: Path, name: str) -> dict | None:
+def get_person_by_role(db_path: Path, role: str) -> dict | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT * FROM people WHERE name = ?", (name,)).fetchone()
+        row = conn.execute("SELECT id, name, role FROM people WHERE role = ?", (role,)).fetchone()
     return dict(row) if row else None
+
 
 def record_verdict(
     db_path: Path, pull_request: int, head_commit: str, reviewer_id: str,
     verdict: str, diagnosis_path: str, command: str,
 ) -> None:
-    """Log a Ship-check verdict for a PR's head commit; a re-run on the same head replaces it."""
+    """Log a Ship-check verdict for a PR's head commit; a re-run on the same head replaces it.
+
+    Only the engineering-lead may record one, so no author approves their own work.
+    """
+    if reviewer_id != "engineering-lead":
+        raise PermissionError(
+            f"a Ship-check verdict is accepted only from the engineering-lead, not from {shown(reviewer_id)}"
+        )
     if verdict not in ("SHIP", "FAIL"):
         raise ValueError(f"verdict must be SHIP or FAIL, not {verdict!r}")
     if not diagnosis_path.strip() or not command.strip():

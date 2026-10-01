@@ -19,8 +19,6 @@ HEAD = "abc123"
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
-    with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
     grant_mandate(path, "M1")
     submit_diagnosis(path, "M1", "d.md")
     register_ticket(path, "11", "M1")
@@ -51,7 +49,7 @@ class FakeGh:
 
 
 def _ship(db, verdict="SHIP", head=HEAD):
-    record_verdict(db, 7, head, "lead", verdict, "d.md", "uv run pytest")
+    record_verdict(db, 7, head, "engineering-lead", verdict, "d.md", "uv run pytest")
 
 
 def _state(db):
@@ -140,7 +138,7 @@ def test_submit_lessons_closes_the_mandate_and_pauses_it_for_the_ceo(learning):
     assert _state(learning) == ("CLOSED", 1)
     with sqlite3.connect(learning) as conn:
         assert conn.execute("SELECT lesson_path FROM mandates").fetchone() == ("docs/lessons/m1.md",)
-    queue_turn(learning, "p1", thread="ticket:11")
+    queue_turn(learning, "fullstack-engineer", thread="ticket:11")
     assert get_queued_turns(learning) == []
 
 

@@ -147,9 +147,7 @@ def test_every_turn_launches_with_generated_settings_and_dontask(tmp_path):
     db = tmp_path / "office.db"
     init_db(db)
     import sqlite3
-    with sqlite3.connect(db) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'fullstack-engineer')")
-    turn_id = queue_turn(db, "p1", kind="ritual")
+    turn_id = queue_turn(db, "fullstack-engineer", kind="ritual")
     pack = _pack(tmp_path, STACK, GATES)
     sup = Supervisor(db, pack, tmp_path)
 

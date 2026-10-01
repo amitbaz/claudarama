@@ -19,16 +19,11 @@ from claudarama.db import (
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
-    with sqlite3.connect(path) as conn:
-        conn.executemany(
-            "INSERT INTO people (id, name, role) VALUES (?, ?, ?)",
-            [("p1", "Bender", "engineer"), ("p2", "Leela", "cpo")],
-        )
     return path
 
 
 def _running_turn(db, **kw):
-    turn_id = queue_turn(db, "p1", **kw)
+    turn_id = queue_turn(db, "fullstack-engineer", **kw)
     mark_turn_running(db, turn_id)
     return turn_id
 
@@ -36,7 +31,7 @@ def _running_turn(db, **kw):
 def test_turn_token_names_person_turn_and_ticket(db):
     turn_id = _running_turn(db, thread="ticket:T-1")
     who = authenticate(db, create_turn_token(db, turn_id))
-    assert (who.person_id, who.turn_id, who.ticket) == ("p1", turn_id, "T-1")
+    assert (who.person_id, who.turn_id, who.ticket) == ("fullstack-engineer", turn_id, "T-1")
 
 
 @pytest.mark.parametrize("token", [None, "", "nope"])
@@ -69,9 +64,7 @@ def test_send_attributes_sender_from_identity(db):
 
     turn_id = _running_turn(db)
     who = authenticate(db, create_turn_token(db, turn_id))
-    asyncio.run(make_send_tool(db)(who, "p2", "DONE", "hi", ticket="T-1"))
+    asyncio.run(make_send_tool(db)(who, "pm", "DONE", "hi", ticket="T-1"))
     with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT sender FROM messages").fetchone() == ("p1",)
+        assert conn.execute("SELECT sender FROM messages").fetchone() == ("fullstack-engineer",)
     assert get_turn(db, turn_id)["status"] == "done"
-
-

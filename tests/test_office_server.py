@@ -6,7 +6,6 @@ that ``claudarama open`` or a turn launch hands to ``claude``, over stdio.
 import asyncio
 import json
 import os
-import sqlite3
 from contextlib import asynccontextmanager
 from unittest.mock import patch
 
@@ -23,8 +22,6 @@ from claudarama.supervisor import Supervisor
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
-    with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
     return path
 
 
@@ -69,7 +66,7 @@ def serve(office):
 
 def _turn_config(db, tmp_path, **turn) -> tuple[str, str]:
     """A running turn and the ``--mcp-config`` its ``claude`` was launched with."""
-    turn_id = queue_turn(db, "p1", **turn)
+    turn_id = queue_turn(db, "fullstack-engineer", **turn)
     launch = Supervisor(db, tmp_path / ".claudarama", tmp_path).build_launch(get_turn(db, turn_id))
     mark_turn_running(db, turn_id)
     return turn_id, launch.cmd[launch.cmd.index("--mcp-config") + 1]
@@ -97,14 +94,14 @@ def test_a_turns_server_speaks_for_that_turn_until_the_turn_ends(db, tmp_path, s
     during, after = serve(config, script)
 
     who = json.loads(during.content[0].text)
-    assert (who["kind"], who["person_id"], who["turn_id"], who["ticket"]) == ("turn", "p1", turn_id, "T-1")
+    assert (who["kind"], who["person_id"], who["turn_id"], who["ticket"]) == ("turn", "fullstack-engineer", turn_id, "T-1")
     assert after.isError and "expired" in after.content[0].text
 
 
 def test_a_turn_does_not_inherit_its_launchers_token(db, tmp_path, monkeypatch):
     """A server process holds its token in its environment; a turn launched from it gets only its own."""
     monkeypatch.setenv(TOKEN_ENV, get_owner_token(db))
-    turn_id = queue_turn(db, "p1")
+    turn_id = queue_turn(db, "fullstack-engineer")
 
     launch = Supervisor(db, tmp_path / ".claudarama", tmp_path).build_launch(get_turn(db, turn_id))
 

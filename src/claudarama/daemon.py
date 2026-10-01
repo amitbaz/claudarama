@@ -22,6 +22,7 @@ from claudarama.db import (
     init_db,
     mark_turn_done,
     queue_turn,
+    redeem_attach_code,
     register_ticket,
     resolve_token,
     shown,
@@ -111,17 +112,35 @@ def make_send_tool(db_path: Path) -> Callable:
 
 
 def create_mcp_server(
-    db_path: Path | None = None, token: str | None = None, gh: Gh | None = None
+    db_path: Path | None = None, token: str | None = None, gh: Gh | None = None,
+    on_attach: Callable[[], None] | None = None,
 ) -> FastMCP:
     """The office server for one caller: every tool call is made as the holder of *token*.
 
-    With *gh*, grants and tickets mirror to GitHub.
+    With *gh*, grants and tickets mirror to GitHub. With *on_attach*, the server was started
+    with no token (the plugin declares it for every session): it creates nothing and refuses
+    every call until ``attach`` makes it the owner's, then calls *on_attach*.
     """
     if db_path is None:
         db_path = get_office_db_path()
-    init_db(db_path)
+    if not on_attach:
+        init_db(db_path)
 
     server = FastMCP("claudarama")
+
+    if on_attach:
+        @server.tool()
+        def attach(code: str) -> dict:
+            """Make this session the CEO's Session. The code comes from `claudarama open --attach`,
+            which the CEO runs as /claudarama:open."""
+            nonlocal token
+            owner = redeem_attach_code(db_path, code)
+            if owner is None:
+                raise PermissionError("unknown or used attach code: the CEO runs /claudarama:open for a new one")
+            if not token:  # opening again in the same session only reloads the brief
+                token = owner
+                on_attach()
+            return {"ok": True}
 
     @server.tool()
     def health() -> dict[str, str]:
@@ -229,25 +248,31 @@ def main() -> None:
     db = os.environ.get(DB_ENV)
     db_path = Path(db) if db else get_office_db_path()
     token = os.environ.get(TOKEN_ENV)
-    server = create_mcp_server(db_path=db_path, token=token, gh=run_gh)
 
     def reconcile() -> None:  # catches hand-moved issues
         while True:
             time.sleep(60)
             sync(db_path, run_gh)
 
+    offices: list[Supervisor] = []
+
+    def run_office() -> None:
+        """The CEO's Session runs the office: transcripts stay with the office's state, outside the project."""
+        threading.Thread(target=reconcile, daemon=True).start()
+        office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns")
+        offices.append(office)
+        threading.Thread(target=office.run, daemon=True).start()
+
+    # Handed no token, this is the server the plugin declares: it waits for /claudarama:open.
+    server = create_mcp_server(db_path=db_path, token=token, gh=run_gh, on_attach=None if token else run_office)
     identity = resolve_token(db_path, token)
-    if not (identity and identity.is_owner):  # a turn's server neither reconciles nor runs turns
-        server.run()
-        return
-    threading.Thread(target=reconcile, daemon=True).start()
-    # The CEO's Session runs the office: transcripts stay with the office's state, outside the project.
-    office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns")
-    threading.Thread(target=office.run, daemon=True).start()
+    if identity and identity.is_owner:  # a turn's server neither reconciles nor runs turns
+        run_office()
     try:
         server.run()
     finally:  # the Session closed
-        office.close()
+        for office in offices:
+            office.close()
 
 
 if __name__ == "__main__":

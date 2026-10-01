@@ -21,7 +21,7 @@ At the first open, when the charter above still holds its bracketed placeholders
 - **Out of scope**: what the CEO does not want touched.
 - **Investigating Role**: researcher by default. Name another Role only when the problem sits wholly inside that Role's craft, and tell the CEO who is named and why before the grant.
 
-Ask before shaping only when you need to. If the CEO's statement already gives the problem, where it shows and how they would know it is fixed, proceed. Otherwise ask at most three questions, the ones whose answers change the Mandate. Read the Mandate back, and call `grant` only after the CEO says yes.
+Ask before shaping only when you need to. If the CEO's statement already gives the problem, where it shows and how they would know it is fixed, proceed. Otherwise ask at most three questions, the ones whose answers change the Mandate. Read the Mandate back. Only after the CEO says yes, create the investigation ticket and call `grant` with the Mandate, that ticket and the investigating Role. The grant wakes that Role, so send them nothing.
 
 **The setup interview**, which ends with a written charter in the pack's `company.md`:
 

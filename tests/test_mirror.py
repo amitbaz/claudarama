@@ -44,16 +44,16 @@ def _office(tmp_path, gh):
 def test_grant_creates_milestone_and_ticket_lands_in_it(tmp_path):
     gh = FakeGh()
     db, call, owner, turn = _office(tmp_path, gh)
-    call(owner, "grant", mandate="M1")
-    assert gh.milestones == ["M1"]
+    call(owner, "grant", mandate="M1", ticket="1")
+    assert gh.milestones == ["M1"] and gh.issues == {"1": "M1"}
     call(turn, "ticket_ready", ticket="7", mandate="M1")
-    assert gh.issues == {"7": "M1"} and gh.comments == []
+    assert gh.issues == {"1": "M1", "7": "M1"} and gh.comments == []
 
 
 def test_hand_moved_issue_goes_back_with_a_comment(tmp_path):
     gh = FakeGh()
     db, call, owner, turn = _office(tmp_path, gh)
-    call(owner, "grant", mandate="M1")
+    call(owner, "grant", mandate="M1", ticket="1")
     call(turn, "ticket_ready", ticket="7", mandate="M1")
     gh.issues["7"] = "Other"
     sync(db, gh)

@@ -161,7 +161,7 @@ def test_lesson_discuss_stays_paused_and_no_sends_it_back_to_learning(learning):
     _submit_lessons(learning)
     assert review_lesson_gates(learning, ask=lambda _: "discuss")
     assert _state(learning) == ("CLOSED", 1)
-    answers = iter(["maybe", "no"])
+    answers = iter(["maybe", "no", "Too vague."])
     review_lesson_gates(learning, ask=lambda _: next(answers))
     assert _state(learning) == ("LEARNING", 0)
     _submit_lessons(learning)  # can resubmit

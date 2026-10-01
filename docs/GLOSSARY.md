@@ -66,7 +66,16 @@ A set of drafted tickets for a PLANNING mandate, tied to it in the database and 
 A Gate where the CEO answers YES, NO or DISCUSS on an Epic, shown with its tickets. YES unblocks the mandate so its tickets can start; NO discards the drafted tickets and returns it to PLANNING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
 **Ship-check**:
-The Engineering Lead's independent verification of a Pull Request, logged with `record_ship_check` as a SHIP or FAIL verdict on the PR's head commit, together with the path of a submitted Diagnosis and the command that was run. The merge gate requires a SHIP verdict for the head commit.
+The Engineering Lead's independent verification of a Pull Request, logged with `record_ship_check` as a SHIP or FAIL verdict on the PR's head commit, together with the path of a submitted Diagnosis and the command that was run. The PR gate requires a SHIP verdict for the head commit.
+
+**PR gate**:
+A Gate where the CEO answers YES, NO or DISCUSS on an open Pull Request that closes an office ticket. YES merges it, but only when a SHIP verdict is recorded for its head commit; otherwise the merge is refused. NO closes the PR; DISCUSS leaves it. When every ticket of an EXECUTING mandate is closed on GitHub, the mandate moves to LEARNING.
+
+**Lesson**:
+The finding a person proposes for a LEARNING mandate, stored as a Markdown file. Submitting it with `submit_lessons` moves the mandate to CLOSED and pauses it at the Lesson gate.
+
+**Lesson gate**:
+A Gate where the CEO answers YES, NO or DISCUSS on a Lesson. YES unblocks the mandate, finally CLOSED; NO returns it to LEARNING; DISCUSS leaves it paused (`blocked_on_ceo`).
 
 **Gate hook**:
 The PreToolUse hook that checks every tool call of a turn against the turn's allowlist and denies what is not on it. It enforces the allowlist; it is not itself a Gate.

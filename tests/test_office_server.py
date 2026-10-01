@@ -30,7 +30,8 @@ def office(tmp_path):
     """``office(config)``: an MCP client on a server process started from *config*."""
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    for name in ("gh", "claude"):  # the server never reaches the real GitHub, nor launches a real turn
+    # The server never reaches the real GitHub, launches a real turn, or shows a real notification.
+    for name in ("gh", "claude", "osascript"):
         (fake_bin / name).write_text("#!/bin/sh\nexit 1\n")
         (fake_bin / name).chmod(0o755)
 

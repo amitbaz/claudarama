@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS messages (
     ticket TEXT,
     thread TEXT,
     body TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    shown INTEGER NOT NULL DEFAULT 0  -- a message to the CEO, once an open has shown it
 );
 
 CREATE TABLE IF NOT EXISTS tokens (
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS mandates (
     status TEXT NOT NULL DEFAULT 'INVESTIGATING'
         CHECK (status IN ('PROPOSED', 'INVESTIGATING', 'PLANNING', 'EXECUTING', 'LEARNING', 'CLOSED')),
     blocked_on_ceo INTEGER NOT NULL DEFAULT 0,
+    pauses INTEGER NOT NULL DEFAULT 0,  -- how many times it has paused at a gate
     diagnosis_path TEXT,
     lesson_path TEXT,
     investigator TEXT NOT NULL DEFAULT 'researcher',  -- the investigating Role
@@ -203,7 +205,7 @@ def init_db(db_path: Path) -> None:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(mandates)")}
         for col, decl in (
             ("status", "TEXT NOT NULL DEFAULT 'INVESTIGATING'"),
-            ("blocked_on_ceo", "INTEGER NOT NULL DEFAULT 0"),
+            ("blocked_on_ceo", "INTEGER NOT NULL DEFAULT 0"), ("pauses", "INTEGER NOT NULL DEFAULT 0"),
             ("diagnosis_path", "TEXT"), ("lesson_path", "TEXT"),
             ("investigator", "TEXT NOT NULL DEFAULT 'researcher'"), ("investigation_ticket", "TEXT"),
         ):
@@ -222,6 +224,8 @@ def init_db(db_path: Path) -> None:
             conn.execute(
                 "UPDATE messages SET thread = 'ticket:' || ticket WHERE ticket IS NOT NULL"
             )
+        if "shown" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN shown INTEGER NOT NULL DEFAULT 0")
         cols = {r[1] for r in conn.execute("PRAGMA table_info(checkpoints)")}
         if not cols:
             conn.executescript(
@@ -423,11 +427,18 @@ def mandate_states(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def pauses(db_path: Path) -> dict[str, int]:
+    """For each mandate waiting on the CEO, how many times it has paused at a gate. A gate that
+    closes and opens again shows the same, and this tells the two apart."""
+    with sqlite3.connect(db_path) as conn:
+        return dict(conn.execute("SELECT id, pauses FROM mandates WHERE blocked_on_ceo = 1"))
+
+
 def submit_diagnosis(db_path: Path, mandate_id: str, diagnosis_path: str) -> None:
     """Move an INVESTIGATING mandate to PLANNING and pause it for the CEO's Diagnosis gate."""
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "UPDATE mandates SET status = 'PLANNING', blocked_on_ceo = 1, diagnosis_path = ? "
+            "UPDATE mandates SET status = 'PLANNING', blocked_on_ceo = 1, pauses = pauses + 1, diagnosis_path = ? "
             "WHERE id = ? AND status = 'INVESTIGATING'",
             (diagnosis_path, mandate_id),
         )
@@ -500,7 +511,7 @@ def submit_epic(db_path: Path, mandate_id: str, tickets: list[str]) -> None:
         raise ValueError("an Epic needs at least one ticket")
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "UPDATE mandates SET status = 'EXECUTING', blocked_on_ceo = 1 "
+            "UPDATE mandates SET status = 'EXECUTING', blocked_on_ceo = 1, pauses = pauses + 1 "
             "WHERE id = ? AND status = 'PLANNING' AND blocked_on_ceo = 0",
             (mandate_id,),
         )
@@ -576,6 +587,13 @@ def ship_checked(db_path: Path, pull_request: int, head_commit: str) -> bool:
             (pull_request, head_commit)).fetchone() is not None
 
 
+def shipped(db_path: Path) -> list[tuple[int, str]]:
+    """Each pull request and head commit with a SHIP verdict, oldest first."""
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT pull_request, head_commit FROM verdicts WHERE verdict = 'SHIP' ORDER BY rowid").fetchall()
+
+
 def start_learning(db_path: Path, mandate_id: str) -> None:
     """Move an unblocked EXECUTING mandate to LEARNING: its work is merged."""
     with sqlite3.connect(db_path) as conn:
@@ -588,7 +606,7 @@ def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str) -> None:
     """Move a LEARNING mandate to CLOSED and pause it for the CEO's Lesson gate."""
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "UPDATE mandates SET status = 'CLOSED', blocked_on_ceo = 1, lesson_path = ? "
+            "UPDATE mandates SET status = 'CLOSED', blocked_on_ceo = 1, pauses = pauses + 1, lesson_path = ? "
             "WHERE id = ? AND status = 'LEARNING' AND blocked_on_ceo = 0",
             (lesson_path, mandate_id),
         )
@@ -690,6 +708,23 @@ def store_message(
             (msg_id, sender, receiver, msg_type, ticket, thread, body),
         )
     return msg_id
+
+
+def ceo_messages(db_path: Path) -> list[dict]:
+    """The messages addressed to the CEO that no open has shown yet, oldest first."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, sender, msg_type, thread, body FROM messages "
+            "WHERE receiver = 'ceo' AND shown = 0 ORDER BY created_at, rowid"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_shown(db_path: Path, messages: list[dict]) -> None:
+    """Record that an open showed these messages to the CEO."""
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany("UPDATE messages SET shown = 1 WHERE id = ?", [(m["id"],) for m in messages])
 
 
 def get_thread(db_path: Path, thread: str) -> list[dict]:

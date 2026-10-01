@@ -50,10 +50,10 @@ def _injected(name: str) -> str:
 def env(tmp_path) -> dict[str, str]:
     """The CEO's machine as the plugin door needs it: `uv`, `git` and a signed-in `gh`, and nothing
     else of Claudarama's. The stand-in `gh` never reaches GitHub, the stand-in `claude` never starts
-    a real turn, and the home directory is the test's own."""
+    a real turn, the stand-in `osascript` shows no notification, and the home directory is the test's own."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name, code in (("gh", 0), ("claude", 1)):
+    for name, code in (("gh", 0), ("claude", 1), ("osascript", 0)):
         (bin_dir / name).write_text(f"#!/bin/sh\nexit {code}\n")
         (bin_dir / name).chmod(0o755)
     (bin_dir / "uv").symlink_to(shutil.which("uv"))

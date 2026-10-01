@@ -42,10 +42,11 @@ Before a scenario runs, each `excludes` pattern is tested against a reply plante
 
 ## A scenario with steps
 
-With `steps`, the reply the checks read is what a real office showed while the steps were walked through it. The office runs in a temporary git repository with the real office server, turn runner, brief builder and database. Three edges are stand-ins:
+With `steps`, the reply the checks read is what a real office showed while the steps were walked through it. The office runs in a temporary git repository with the real office server, turn runner, brief builder and database. Four edges are stand-ins:
 
 - `claude`: each turn is scripted. It starts the office server it is handed and calls the office's tools through it.
 - `gh`: a stand-in GitHub that holds milestones, issues and pull requests in a file.
+- `osascript`: the notification sink. It keeps what the office would have shown on the CEO's desktop and shows nothing.
 - The CEO: each answer at a gate is scripted.
 
 ```json
@@ -77,7 +78,7 @@ With `steps`, the reply the checks read is what a real office showed while the s
 Steps run in order.
 
 - **`ceo_action` with `calls`**: the CEO's Session calls the office's tools with the owner token. Each call names a `tool` and its `args`.
-- **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, through the same code that asks at `claudarama open`. A `NO` gives its one-line `reason`. An answer with no gate waiting fails the scenario.
+- **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, inside the Session, through the office's owner-only `list_gates` and `answer_gate` tools. A `NO` gives its one-line `reason`. The CEO learns of a gate from the office's notification, so the answer waits for one; a gate left at `DISCUSS` is answered again without a new one. An answer with no gate waiting, or with no notification that it opened, fails the scenario.
 - **`mock_llm_turns`**: each entry of `turns` is one scripted turn, with the `role` that runs it, the `ticket` whose thread wakes it, and its `calls`. A call is one of the office's tools (`tool`, `args`) or a command the turn runs where it works, which is its ticket's worktree (`run`). The turns of one step run side by side; the step ends when each has ended.
 
 The office wakes a Role itself, and after each step the walk shows who it woke. A scripted turn is the turn the office queued for that Role on that ticket; it acts when the walk reaches its step. Where the office queued none, the scenario queues the turn itself and shows no `is woken` line for it.
@@ -95,8 +96,10 @@ CEO calls <tool> <args> -> <answer>
 <role>'s turn: done
 <role>'s turn: refused: <why the office did not start it>
 <role>'s turn: failed: <the error>
+Notification: <what the office told the CEO when the gate opened>
 Diagnosis gate: mandate '<mandate>', diagnosis at <path>
 CEO answers YES
+CEO answers YES -> REFUSED: <the server's reason>
 CEO answers NO
 CEO's reason: <the reason>
 Mandate '<mandate>': <STATUS>

@@ -1,8 +1,9 @@
-"""The stand-ins a scenario's office runs in place of ``claude`` and ``gh``.
+"""The stand-ins a scenario's office runs in place of ``claude``, ``gh`` and ``osascript``.
 
-Run by path, so a turn starts without loading the office: ``stand_ins.py <claude|gh> <state
-directory> <the arguments the real program was given>``. The state directory holds each Role's
-scripted turns (``<role>.json``) and the stand-in GitHub (``gh.json``).
+Run by path, so a turn starts without loading the office: ``stand_ins.py <claude|gh|osascript>
+<state directory> <the arguments the real program was given>``. The state directory holds each
+Role's scripted turns (``<role>.json``), the stand-in GitHub (``gh.json``) and the notifications
+the office sent (``notifications``).
 """
 import asyncio
 import json
@@ -114,9 +115,16 @@ def gh(state: Path, argv: list[str]) -> None:
     path.write_text(json.dumps(hub))
 
 
+def osascript(state: Path, argv: list[str]) -> None:
+    """The notification sink: what the office would have shown on the CEO's desktop is kept in
+    ``notifications``, a line each, and nothing is shown."""
+    with (state / "notifications").open("a") as told:
+        told.write(json.dumps(argv[-1]) + "\n")
+
+
 if __name__ == "__main__":
     program, state, argv = sys.argv[1], Path(sys.argv[2]), sys.argv[3:]
     if program == "claude":
         asyncio.run(claude(state, argv))
     else:
-        gh(state, argv)
+        {"gh": gh, "osascript": osascript}[program](state, argv)

@@ -30,7 +30,7 @@ Then, in a Claude Code session in your project:
 
 1. `/claudarama:setup` scaffolds the pack, the project's `.claudarama/` directory. Commit it.
 2. `/claudarama:open` opens the office. The session becomes the CEO's Session and Claude becomes the Assistant. At the first open the Assistant interviews you for the charter and confirms the project's test commands; after that, describe a problem and the Assistant shapes it into a Mandate for you to grant.
-3. `/claudarama:status` shows what the office has used so far.
+3. `/claudarama:status` shows what the office has used so far and, for each Mandate, a report of where the office did well and where it did not: each Role's turns with their usage and transcripts, every NO and FAIL with its reason, and every question a Role asked.
 
 The office works while that session is open. Closing it pauses the office, and the next `/claudarama:open` picks the work up again.
 
@@ -44,7 +44,7 @@ Then, in your project:
 
 1. `claudarama setup` scaffolds the pack. Commit it.
 2. `claudarama open` starts Claude Code as the CEO's Session, with the Assistant ready.
-3. `claudarama status` shows what the office has used so far.
+3. `claudarama status` shows the same usage and Mandate reports as `/claudarama:status`.
 
 ### When a gate opens
 

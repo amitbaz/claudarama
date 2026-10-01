@@ -165,7 +165,8 @@
       {"role": "pm", "ticket": "4", "calls": [
         {"tool": "submit_epic", "args": {"mandate": "Fix the search", "tickets": {"6": "designer"}}}
       ]}
-    ]}
+    ]},
+    {"type": "ceo_action", "command": "status"}
   ],
   "checks": {
     "includes": [
@@ -230,7 +231,11 @@
       "inside the spread\\.\"\\} -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nresearcher is woken on ticket 4\\nNotification: Ticket 5 failed its Ship-check 2 times: mandate 'Fix the search' is back with the researcher \\(Amy\\)\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': INVESTIGATING\\n",
       "\\| \\*\\*engineering-lead \\(Kif\\) → researcher \\(Amy\\)\\*\\* \\[STOPPED\\]: Ticket 5 failed its Ship-check 2 times\\. 1\\) Ship-check of #104: A search for two words still finds nothing\\. 2\\) Ship-check of #105: Two words now match, but the timing is inside the spread\\.",
       "diagnosis at company/diagnoses/search-2.md\\nChallenge by engineering-lead \\(Kif\\): STANDS: The index is the slow part in every run\\.\\nWhat was run: the search timer, ten times\\nCEO answers YES\\npm is woken on ticket 4\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': PLANNING\\n",
-      "pm calls submit_epic .*\"6\": \"designer\".* -> \\{\"ok\": true.*\\npm's turn: done\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': EXECUTING, waiting for the CEO\\n"
+      "pm calls submit_epic .*\"6\": \"designer\".* -> \\{\"ok\": true.*\\npm's turn: done\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': EXECUTING, waiting for the CEO\\n",
+      "CEO runs claudarama status\\n",
+      "\\n--- Mandate 'Speed up checkout': CLOSED ---\\n(?:.+\\n)*Challenge DISPUTED from engineering-lead \\(Kif\\) to researcher \\(Amy\\): The timing swings by half a second with nothing changed\\. What was run: the page timer, five times on the unchanged commit\\n",
+      "\\n--- Mandate 'Speed up checkout': CLOSED ---\\n(?:.+\\n)*NO from ceo to researcher \\(Amy\\) on ticket 1: Diagnosis gate: The cart is slow, not the payment page\\.\\n(?:.+\\n)*NO from ceo to pm \\(Hermes\\) on ticket 1: Epic gate: Cover the cart's images too\\.\\n(?:.+\\n)*NO from ceo to fullstack-engineer \\(Bender\\) on ticket 2: PR gate: It still loads every image at full size\\.\\n(?:.+\\n)*NO from ceo to engineering-lead \\(Kif\\) on ticket 1: Lesson gate: The Lesson is too vague to act on\\.\\n",
+      "\\n--- Mandate 'Fix the search': .+ ---\\n(?:.+\\n)*FAIL from engineering-lead \\(Kif\\) to designer \\(Zoidberg\\) on ticket 5: Ship-check of #104: A search for two words still finds nothing\\.\\n(?:.+\\n)*FAIL from engineering-lead \\(Kif\\) to designer \\(Zoidberg\\) on ticket 5: Ship-check of #105: Two words now match, but the timing is inside the spread\\.\\n"
     ]
   }
 }

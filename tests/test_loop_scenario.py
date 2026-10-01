@@ -193,6 +193,22 @@ def test_a_step_the_office_could_not_carry_out_is_refused_by_the_free_checker(st
     assert problem in "\n".join(checked.errors)
 
 
+def test_company_md_names_who_the_office_wakes_at_each_transition():
+    rows = dict(re.findall(r"^\| (.+?) \| (.+?) \|$", (ROOT / "docs" / "COMPANY.md").read_text(), re.MULTILINE))
+
+    for event, woken in [
+        ("Mandate granted", "The investigating Role"),
+        ("Diagnosis gate YES", "The pm"),
+        ("Epic gate YES", "Each ticket's Role"),
+        ("A Pull Request opens for a ticket, or takes a new push", "The engineering-lead"),
+        ("Ship-check FAIL, first on a ticket", "The ticket's Role, with the reason"),
+        ("Ship-check FAIL, second on a ticket", "The investigating Role, with both reasons"),
+        ("Every ticket of the Mandate closed", "The engineering-lead, to write the Retro"),
+        ("Any Gate NO", "Whoever produced the work, with the CEO's reason"),
+    ]:
+        assert rows.get(event, "").startswith(woken), event
+
+
 def test_scenarios_md_shows_the_format_the_validator_accepts_and_where_scenarios_live():
     doc = (ROOT / "docs" / "SCENARIOS.md").read_text()
 

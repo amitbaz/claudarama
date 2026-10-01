@@ -64,16 +64,16 @@ _Avoid_: Review, critique
 A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis, shown with its Challenge. YES merges the Diagnosis, unblocks the mandate to plan, staying PLANNING, and wakes the pm; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
 **Epic**:
-A set of drafted tickets for a PLANNING mandate, each naming the Role that will do it, tied to it in the database and marked `drafted` until the CEO approves; there is no epics table. Tickets that already exist cannot be drafted. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.
+A set of drafted tickets for a PLANNING mandate, each naming the Role that will do it, tied to it in the database and marked `drafted` until the CEO approves; there is no epics table. A ticket naming a Role with no role file is refused, and tickets that already exist cannot be drafted. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.
 
 **Epic gate**:
-A Gate where the CEO answers YES, NO or DISCUSS on an Epic, shown with its tickets. YES unblocks the mandate so its tickets can start; NO discards the drafted tickets and returns it to PLANNING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
+A Gate where the CEO answers YES, NO or DISCUSS on an Epic, shown with its tickets and each ticket's Role. YES unblocks the mandate and wakes each ticket's Role; NO discards the drafted tickets and returns it to PLANNING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
 **Ship-check**:
-The Engineering Lead's independent verification of a Pull Request, logged with `record_ship_check` as a SHIP or FAIL verdict on the PR's head commit, together with the path of a submitted Diagnosis and the command that was run. The PR gate requires a SHIP verdict for the head commit.
+The Engineering Lead's independent verification of a Pull Request, logged with `record_ship_check` as a SHIP or FAIL verdict on the PR's head commit, together with the path of a submitted Diagnosis and the command that was run. The Engineering Lead is woken for it when a Pull Request opens for a ticket or takes a new push. The PR gate requires a SHIP verdict for the head commit. A FAIL carries a one-line reason, which joins the ticket's thread and wakes the ticket's Role. A ticket's second FAIL stops the ticket: no turn is queued for its Role, the mandate returns to INVESTIGATING, the investigating Role is woken with both reasons, and the CEO is notified. Work on the mandate's other tickets waits until a revised Diagnosis passes the Diagnosis gate.
 
 **PR gate**:
-A Gate where the CEO answers YES, NO or DISCUSS on an open Pull Request that closes an office ticket. YES merges it, but only when a SHIP verdict is recorded for its head commit; otherwise the merge is refused. NO closes the PR; DISCUSS leaves it. When every ticket of an EXECUTING mandate is closed on GitHub, the mandate moves to LEARNING.
+A Gate where the CEO answers YES, NO or DISCUSS on an open Pull Request that closes an office ticket. YES merges it, but only when a SHIP verdict is recorded for its head commit; otherwise the merge is refused. NO closes the PR; DISCUSS leaves it. When every ticket of an EXECUTING mandate is closed on GitHub, the mandate moves to LEARNING while the office runs, and the Engineering Lead is woken to write the Retro.
 
 **Retro**:
 The written look back on a LEARNING mandate, which proposes Lessons. Submitting it moves the mandate to CLOSED and pauses it at the Lesson gate.

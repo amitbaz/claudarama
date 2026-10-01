@@ -49,7 +49,7 @@ def test_yes_unblocks(db):
     queue_turn(db, "p1", thread="ticket:T1")
     _submit(db)
     assert not review_diagnosis_gates(db, ask=lambda _: "yes")
-    assert _state(db)[:2] == ("EXECUTING", 0)
+    assert _state(db)[:2] == ("PLANNING", 0)  # planning begins; the Epic gate comes next
     assert len(get_queued_turns(db)) == 1
 
 

@@ -366,13 +366,59 @@ def diagnosis_gates(db_path: Path) -> list[dict]:
 
 
 def resolve_diagnosis_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
-    """YES unblocks the mandate into EXECUTING; NO sends it back to INVESTIGATING, unblocked."""
+    """YES unblocks the mandate to plan; NO sends it back to INVESTIGATING, unblocked."""
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
             "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'PLANNING'",
-            ("EXECUTING" if approved else "INVESTIGATING", mandate_id),
+            ("PLANNING" if approved else "INVESTIGATING", mandate_id),
         )
+
+
+def submit_epic(db_path: Path, mandate_id: str, tickets: list[str]) -> None:
+    """Tie drafted tickets to a PLANNING mandate, move it to EXECUTING and pause it for the CEO."""
+    if not tickets:
+        raise ValueError("an Epic needs at least one ticket")
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE mandates SET status = 'EXECUTING', blocked_on_ceo = 1 "
+            "WHERE id = ? AND status = 'PLANNING' AND blocked_on_ceo = 0",
+            (mandate_id,),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"mandate {mandate_id!r} is not PLANNING and unblocked")
+        conn.executemany(
+            "INSERT INTO tickets (id, mandate_id) VALUES (?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET mandate_id = excluded.mandate_id",
+            [(t, mandate_id) for t in tickets],
+        )
+
+
+def epic_gates(db_path: Path) -> list[dict]:
+    """Mandates paused at the Epic gate, with their drafted tickets, awaiting the CEO."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id FROM mandates WHERE blocked_on_ceo = 1 AND status = 'EXECUTING' "
+            "ORDER BY granted_at, rowid"
+        ).fetchall()
+        return [
+            {"id": r["id"], "tickets": [t[0] for t in conn.execute(
+                "SELECT id FROM tickets WHERE mandate_id = ? ORDER BY rowid", (r["id"],))]}
+            for r in rows
+        ]
+
+
+def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
+    """YES unblocks the mandate to execute; NO discards the drafted tickets and returns it to PLANNING."""
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
+            "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'EXECUTING'",
+            ("EXECUTING" if approved else "PLANNING", mandate_id),
+        )
+        if cur.rowcount and not approved:
+            conn.execute("DELETE FROM tickets WHERE mandate_id = ?", (mandate_id,))
 
 
 def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False) -> None:

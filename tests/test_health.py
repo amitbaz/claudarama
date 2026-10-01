@@ -66,7 +66,7 @@ def test_crash_retried_once_on_same_model(tmp_path):
     marker = tmp_path / "ran"
     mock = _script(
         tmp_path,
-        f'echo "$@" >> {marker}\n[ $(wc -l < {marker}) -ge 2 ] && exit 0\nexit 1',
+        f'echo x >> {marker}\n[ $(wc -l < {marker}) -ge 2 ] && exit 0\nexit 1',
     )
     Supervisor(db, pack, out, claude_binary=str(mock)).run_one_turn(tid)
     assert _rows(db, "SELECT status FROM turns")[0]["status"] == "done"

@@ -135,8 +135,9 @@ def open_ceo_session(
     port: int = 8000,
     claude_binary: str = "claude",
     db_path: Path | None = None,
+    pack_dir: Path | None = None,
 ) -> int:
-    """Launch an interactive Claude session holding the owner token."""
+    """Launch the CEO's Session: the owner token and the Assistant's brief."""
     db_path = db_path or get_office_db_path()
     init_db(db_path)
     if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
@@ -146,7 +147,8 @@ def open_ceo_session(
         advance_to_learning(db_path)
         review_lesson_gates(db_path)
     config = mcp_config(host, port, get_owner_token(db_path))
-    return _run_claude([claude_binary, "--mcp-config", config], claude_binary)
+    brief = build_brief(pack_dir or Path.cwd() / ".claudarama", "assistant")
+    return _run_claude([claude_binary, "--mcp-config", config, "--append-system-prompt", brief], claude_binary)
 
 
 def talk_to_person(

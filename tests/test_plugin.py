@@ -19,7 +19,8 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from claudarama.cli import build_parser
 from claudarama.db import (
-    create_attach_code, create_turn_token, get_owner_token, get_turn, init_db, mark_turn_running, queue_turn,
+    create_attach_code, create_turn_token, get_owner_token, get_turn, grant_mandate, init_db, mark_turn_running,
+    queue_turn, record_challenge, resolve_diagnosis_gate, submit_diagnosis,
 )
 from claudarama.gate import build_allowlist, decide
 from claudarama.session import mcp_config
@@ -227,6 +228,25 @@ def test_an_attach_code_comes_only_from_the_ceos_open_and_works_once(tmp_path, p
     assert untouched
     assert reused.isError and "attach code" in reused.content[0].text
     assert second.isError  # the other session on the project is still nobody's
+
+
+# --- /claudarama:status shows each Mandate's report (issue #97) -----------------------------
+
+
+def test_status_from_the_plugin_shows_a_mandates_report(project, env):
+    _open(project, env)  # the office exists once it has been opened
+    db = _office_db(env)
+    grant_mandate(db, "Speed up checkout", ticket="1")
+    submit_diagnosis(db, "Speed up checkout", "company/diagnoses/checkout.md")
+    record_challenge(db, "Speed up checkout", "engineering-lead", "STANDS", "Ten runs agree.", "the page timer")
+    resolve_diagnosis_gate(db, "Speed up checkout", False, "Look at the cart.")
+
+    result = _render("status", project, env)
+
+    assert result.returncode == 0, result.stderr
+    # No Session is attached, so nothing runs: the researcher's turn is still the queued one.
+    assert "--- Mandate 'Speed up checkout': INVESTIGATING ---\nresearcher (Amy): 1 turn, " in result.stdout
+    assert "\nNO from ceo to researcher (Amy) on ticket 1: Diagnosis gate: Look at the cart.\n" in result.stdout
 
 
 def test_a_server_handed_a_token_cannot_be_attached(tmp_path, env):

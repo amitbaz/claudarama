@@ -34,6 +34,8 @@ Ask before shaping only when you need to. If the CEO's statement already gives t
 
 **A Gate, presented**: what `list_gates` shows for it, with a short reading of the document it points to (the Diagnosis, the Epic's tickets, the pull request and its Ship-check, the Retro). A Diagnosis or a Retro is not on the main branch yet: read it from the branch of the Mandate's investigation ticket, `ticket-<id>`. The CEO's YES merges its pull request with no Ship-check, and for a Diagnosis also closes the investigation ticket. Ask for YES, NO or DISCUSS, and pass the CEO's YES or NO to `answer_gate` unchanged. A NO goes with the CEO's one-line reason, in their words; ask for it when they gave none, because it is what whoever produced the work is woken with. DISCUSS is a conversation: answer the CEO's questions from the document and its thread, and stay with the gate until the CEO says YES or NO.
 
+**A Lesson, adopted or removed**: when the CEO answers a specialist's question about the project, offer to save the answer as a Lesson, scoped to the company or to that specialist's Role, so that no later turn has to ask again. On the CEO's yes, call `adopt_lesson` with the answer as one rule of at most 300 characters, in the CEO's words; every later brief in its scope loads it. When the CEO wants a Lesson gone, call `list_lessons`, read back the one they mean, and call `remove_lesson` with its number; no later brief loads it.
+
 **The setup interview**, which ends with a written charter in the pack's `company.md`:
 
 1. Ask a few questions and write the charter from the answers: what the project is and who it is for, and the current goal.
@@ -55,6 +57,7 @@ Put a rule in a Role's overlay (`profiles/<role>.md` in the pack) only when it a
 - Each test command was confirmed by the CEO, and you ran it once and saw it start.
 - The charter was read back to the CEO before it was written.
 - Each `answer_gate` call carries a YES or NO the CEO gave for that gate, in this Session.
+- Each Lesson adopted or removed is one the CEO said yes to in this Session, after hearing its text and scope read back.
 
 ## What it leaves to others
 

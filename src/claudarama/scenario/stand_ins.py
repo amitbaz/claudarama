@@ -19,7 +19,8 @@ from pathlib import Path
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-RESULT = '{"type": "result"}'  # the last line of a turn's transcript, as of claude's own
+# The last line of a turn's transcript, as of claude's own: every scripted turn reports the same usage.
+RESULT = '{"type": "result", "usage": {"input_tokens": 100, "output_tokens": 20}, "cost": 0.01}'
 FIRST_PULL_REQUEST = 101  # clear of the scenario's ticket numbers; GitHub numbers both from one counter
 
 

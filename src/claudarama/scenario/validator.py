@@ -25,12 +25,14 @@ class MockLlmTurnsStep(ScenarioStep):
 
 @dataclass
 class CeoActionStep(ScenarioStep):
-    """The CEO's answer at the gate that is waiting (``input``, with the ``reason`` for a NO), or what
-    the CEO's Session asks of the office (``calls``)."""
+    """The CEO's answer at the gate that is waiting (``input``, with the ``reason`` for a NO), what
+    the CEO's Session asks of the office (``calls``), or the ``claudarama`` command the CEO runs
+    (``command``: only ``status``)."""
     type: str = "ceo_action"
     input: str = ""
     reason: str = ""
     calls: list[dict[str, Any]] = field(default_factory=list)
+    command: str = ""
 
 @dataclass
 class ScenarioChecks:
@@ -224,7 +226,11 @@ def validate_scenario(data: Any) -> ValidationResult:
                         _validate_turn(turn, role, f"Step at index {i} (mock_llm_turns)", errors)
                     parsed_steps.append(MockLlmTurnsStep(turns=step["turns"]))
             elif step_type == "ceo_action":
-                if "calls" in step and "input" not in step:
+                if "command" in step:
+                    if step != {"type": "ceo_action", "command": "status"}:
+                        errors.append(f"Step at index {i} (ceo_action) may run only the 'command' status, with nothing beside it.")
+                    parsed_steps.append(CeoActionStep(command="status"))
+                elif "calls" in step and "input" not in step:
                     _validate_calls(step["calls"], f"Step at index {i} (ceo_action)", errors, may_run=False)
                     parsed_steps.append(CeoActionStep(calls=step["calls"]))
                 elif "calls" in step or step.get("input") not in ("YES", "NO", "DISCUSS"):

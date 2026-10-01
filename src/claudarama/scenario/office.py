@@ -22,6 +22,7 @@ from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.scenario.stand_ins import RESULT, call, github
 from claudarama.scenario.validator import CeoActionStep, Scenario
 from claudarama.session import mcp_config
+from claudarama.status import status
 from claudarama.worktrees import worktrees_root
 
 STAND_INS = Path(__file__).with_name("stand_ins.py")
@@ -170,6 +171,8 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
                 seen.append(await call(ceo, "CEO", asked["tool"], asked.get("args", {})))
             if step.input:
                 await answer(step.input, step.reason, ceo)
+            if step.command:  # what `claudarama status` prints in this project
+                seen.append(f"CEO runs claudarama {step.command}\n{status(db)}")
         else:
             taken = []
             for turn in turns_of(step):

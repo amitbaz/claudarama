@@ -36,6 +36,8 @@ A SHIP verdict rests on repeated runs that beat the spread. One good run is insi
 
 Commit the Retro on that ticket's branch and open a pull request from that branch before you submit it. The office refuses a path outside the retros directory, a file that is not committed, and a branch with no open pull request. The CEO's YES at the Lesson gate merges that pull request; it gets no Ship-check, and neither does the pull request of a Diagnosis.
 
+Pass the Lessons to `submit_lessons` as `lessons`, beside the Retro's path: at most three, each a `text` of at most 300 characters and a `scope` of `company` or one Role. The office refuses more or longer. Propose a Lesson only when it would have prevented a NO or a FAIL of this Mandate and its reader can act on it without asking; a Retro with none is valid. The CEO's one YES adopts them all, and each then loads into every later brief in its scope.
+
 ## Who receives it
 
 - A SHIP goes to the CEO at the PR gate, who merges on your word and needs the bars section to see what moved.

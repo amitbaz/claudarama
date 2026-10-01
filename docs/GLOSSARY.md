@@ -79,7 +79,7 @@ A Gate where the CEO answers YES, NO or DISCUSS on an open Pull Request that clo
 The written look back on a LEARNING mandate, which proposes Lessons. It is a file in the pack's `company/retros/` directory, committed on the investigation ticket's branch with a Pull Request from that branch; the office refuses one at any other path. Submitting it moves the mandate to CLOSED and pauses it at the Lesson gate.
 
 **Lesson**:
-One short rule a Retro proposes, scoped to the whole company or to one Role. Once the CEO approves it at the Lesson gate, every brief in its scope loads it.
+One short rule, of at most 300 characters, scoped to the whole company or to one Role. A Retro proposes at most three, and the CEO adopts them with one YES at the Lesson gate; the CEO can also adopt one directly through the Assistant. Every brief in an adopted Lesson's scope loads it, until the CEO removes it through the Assistant.
 
 **Lesson gate**:
 A Gate where the CEO answers YES, NO or DISCUSS on the Lessons a Retro proposes. YES merges the Retro's Pull Request with no Ship-check, adopts its Lessons and unblocks the mandate, finally CLOSED; NO returns it to LEARNING; DISCUSS leaves it paused (`blocked_on_ceo`).

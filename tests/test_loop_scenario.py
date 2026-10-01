@@ -292,6 +292,168 @@ def test_a_diagnosis_is_accepted_only_in_its_directory_committed_complete_and_in
     assert result.passed, _why(result)
 
 
+# --- Lessons reach briefs (issue #93) -------------------------------------------------
+
+M_RETRO = ".claudarama/company/retros/m.md"
+# Mandate M's Retro as its author hands it in: committed on the ticket's branch and in a pull request.
+RETRO_WRITTEN = [_committed(M_RETRO, "Where it went wrong"), {"run": ["gh", "pr", "create", "--title", "Retro of M"]}]
+
+
+def _retro(*lessons: tuple[str, str]) -> dict:
+    return {"tool": "submit_lessons", "args": {
+        "mandate": "M", "lesson_path": M_RETRO,
+        "lessons": [{"text": text, "scope": scope} for text, scope in lessons],
+    }}
+
+
+# Mandate M walked to LEARNING, where the engineering-lead is woken on ticket 1 to write the Retro.
+M_LEARNING = [
+    M_GRANTED,
+    _on_ticket_1(*DIAGNOSED),
+    CHALLENGED,
+    {"type": "ceo_action", "input": "YES"},  # which closes ticket 1
+    {"type": "mock_llm_turns", "turns": [{"role": "pm", "ticket": "1", "calls": [
+        {"tool": "submit_epic", "args": {"mandate": "M", "tickets": {"2": "designer"}}},
+    ]}]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [{"role": "designer", "ticket": "2", "calls": [{"run": ["gh", "issue", "close", "2"]}]}]},
+]
+
+
+def test_a_retro_over_the_limits_on_its_lessons_is_refused():
+    rule = ("Run the eval five times.", "company")
+    retro = {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [
+        *RETRO_WRITTEN,
+        _retro(rule, rule, rule, rule),
+        _retro(("x" * 301, "company")),
+        _retro(("Run the eval five times.", "everyone")),
+        _retro(("x" * 300, "designer"), rule, rule),
+    ]}]}
+
+    result = _walk([*M_LEARNING, retro], includes=[
+        "engineering-lead calls submit_lessons .* -> REFUSED: .*at most 3 Lessons, not 4\\n"
+        "engineering-lead calls submit_lessons .* -> REFUSED: .*at most 300 characters, not 301\\n"
+        "engineering-lead calls submit_lessons .* -> REFUSED: .*scoped to 'company' or to one Role, not 'everyone'.*\\n"
+        # Within the limits it is taken, so each refusal left the mandate LEARNING.
+        "engineering-lead calls submit_lessons .* -> \\{\"ok\": true.*\\n"
+        "engineering-lead's turn: done\\nMandate 'M': CLOSED, waiting for the CEO\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+def test_only_the_ceo_removes_a_lesson_or_adopts_one_directly_and_a_brief_loads_those_in_its_scope_alone():
+    retro = {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [
+        *RETRO_WRITTEN,
+        _retro(
+            ("Run the eval five times.", "company"),
+            ("Check a page with its real images.", "designer"),
+            ("Name the commit a number came from.", "company"),
+        ),
+        {"tool": "list_lessons"},
+        {"tool": "remove_lesson", "args": {"lesson": 1}},
+        {"tool": "adopt_lesson", "args": {"text": "Skip the eval.", "scope": "company"}},
+    ]}]}
+    steps = [
+        *M_LEARNING, retro,
+        {"type": "ceo_action", "input": "YES"},
+        {"type": "ceo_action", "calls": [
+            {"tool": "list_lessons"},
+            {"tool": "remove_lesson", "args": {"lesson": 3}},
+            {"tool": "remove_lesson", "args": {"lesson": 3}},
+            {"tool": "adopt_lesson", "args": {"text": "x" * 301, "scope": "researcher"}},
+            {"tool": "adopt_lesson", "args": {"text": "The staging database is shared with the demo.", "scope": "researcher"}},
+            {"tool": "grant", "args": {"mandate": "N", "ticket": "3"}},
+        ]},
+        {"type": "mock_llm_turns", "turns": [{"ticket": "3", "calls": [{"tool": "whoami"}]}]},
+    ]
+
+    result = _walk(steps, includes=[
+        "engineering-lead calls list_lessons .* -> REFUSED: .*owner-only.*\\n"
+        "engineering-lead calls remove_lesson .* -> REFUSED: .*owner-only.*\\n"
+        "engineering-lead calls adopt_lesson .* -> REFUSED: .*owner-only",
+        # The CEO's YES adopted the three; each is listed with the number it is removed by.
+        "CEO calls list_lessons \\{\\} -> \\{\"lessons\": \\["
+        "\\{\"lesson\": 1, \"text\": \"Run the eval five times\\.\", \"scope\": \"company\", \"mandate\": \"M\"\\}, "
+        "\\{\"lesson\": 2, .*\"scope\": \"designer\", \"mandate\": \"M\"\\}, \\{\"lesson\": 3, .*\\]\\}\\n"
+        "CEO calls remove_lesson \\{\"lesson\": 3\\} -> \\{\"ok\": true.*\\n"
+        "CEO calls remove_lesson \\{\"lesson\": 3\\} -> REFUSED: .*no adopted Lesson 3.*\\n"
+        # A Lesson the CEO adopts directly keeps to the same length limit.
+        "CEO calls adopt_lesson .* -> REFUSED: .*at most 300 characters, not 301\\n"
+        "CEO calls adopt_lesson .* -> \\{\"ok\": true, \"lesson\": 4, \"scope\": \"researcher\"\\}\\n",
+        # The next Mandate's researcher is briefed with the company's Lesson and its own Role's:
+        # not the designer's, and not the one the CEO removed.
+        "\\| ## Lessons\\n\\n  \\| - Run the eval five times\\.\\n  \\| - The staging database is shared with the demo\\.\\n\\n"
+        "  \\| ---\\n\\n  \\| ## Ticket\\n\\n  \\| Working on ticket: 3\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+# --- a per-mandate report of where the office went wrong (issue #97) -----------------
+
+STATUS = {"type": "ceo_action", "command": "status"}  # the CEO runs `claudarama status`
+TURN = "done, 100 in, 20 out, \\$0\\.01, transcript: /.+/turns/[0-9a-f-]{36}\\.jsonl\\n"  # the stand-in's usage
+
+
+def test_status_shows_for_a_mandate_each_role_with_its_turns_in_order_its_usage_and_each_transcript():
+    steps = [
+        M_GRANTED,
+        _on_ticket_1(*DIAGNOSED),
+        CHALLENGED,
+        {"type": "ceo_action", "input": "NO", "reason": "Look at the cart."},
+        _on_ticket_1({"tool": "whoami"}),
+        STATUS,
+    ]
+
+    result = _walk(steps, includes=[
+        "CEO runs claudarama status\\n",
+        "\\n--- Mandate 'M': INVESTIGATING ---\\n"
+        "researcher \\(Amy\\): 2 turns, 200 in, 40 out, \\$0\\.02\\n"
+        f"  turn 1 on ticket 1: {TURN}"
+        f"  turn 3 on ticket 1: {TURN}"
+        "engineering-lead \\(Kif\\): 1 turn, 100 in, 20 out, \\$0\\.01\\n"
+        f"  turn 2 on ticket 1: {TURN}",
+    ])
+
+    assert result.passed, _why(result)
+
+
+def test_status_shows_each_question_and_blocked_message_a_role_sent():
+    def sends(receiver, msg_type, body):
+        return {"tool": "send", "args": {"receiver_id": receiver, "msg_type": msg_type, "body": body, "ticket": "1"}}
+
+    steps = [
+        M_GRANTED,
+        _on_ticket_1(*DIAGNOSED, sends("pm", "QUESTION", "Which page?")),
+        {"type": "mock_llm_turns", "turns": [
+            {"role": "engineering-lead", "ticket": "1", "calls": [sends("ceo", "BLOCKED", "The eval will not run here.")]},
+        ]},
+        STATUS,
+    ]
+
+    result = _walk(steps, includes=[
+        # The pm's turn waits out the batch window: a turn that has not started has no transcript.
+        "pm \\(Hermes\\): 1 turn, 0 in, 0 out, \\$0\\.00\\n  turn 3 on ticket 1: queued, 0 in, 0 out, \\$0\\.00, no transcript\\n"
+        "QUESTION from researcher \\(Amy\\) to pm \\(Hermes\\) on ticket 1: Which page\\?\\n"
+        "BLOCKED from engineering-lead \\(Kif\\) to ceo on ticket 1: The eval will not run here\\.\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+def test_status_shows_a_failed_turn_with_its_error():
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "../../1"}}]}
+    turn = {"type": "mock_llm_turns", "turns": [{"ticket": "../../1", "calls": [{"run": ["pwd"]}]}]}
+
+    result = _walk([granted, turn, STATUS], includes=[
+        "researcher \\(Amy\\): 1 turn, 0 in, 0 out, \\$0\\.00\\n  turn 1 on ticket \\.\\./\\.\\./1: "
+        "failed: ValueError: ticket '\\.\\./\\.\\./1' cannot name a worktree, 0 in, 0 out, \\$0\\.00, no transcript\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),
@@ -303,6 +465,8 @@ def test_a_diagnosis_is_accepted_only_in_its_directory_committed_complete_and_in
     ({"type": "ceo_action", "input": "NO"}, "a one-line 'reason' with NO"),
     ({"type": "ceo_action", "input": "NO", "reason": "Wrong page.\nAnd too slow."}, "a one-line 'reason' with NO"),
     ({"type": "ceo_action", "input": "YES", "reason": "Looks right."}, "only with NO"),
+    ({"type": "ceo_action", "command": "open"}, "only the 'command' status"),
+    ({"type": "ceo_action", "command": "status", "input": "YES"}, "only the 'command' status"),
 ])
 def test_a_step_the_office_could_not_carry_out_is_refused_by_the_free_checker(step, problem):
     checked = validate_scenario(_scenario([step], includes=["^"]))

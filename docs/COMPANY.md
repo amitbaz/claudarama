@@ -43,6 +43,7 @@ The company raises its own baseline over time.
 *   When every ticket of the Mandate is closed, the Mandate moves to LEARNING while the office runs, and the engineering-lead is woken to write the **Retro**, which proposes **Lessons**.
 *   A Retro is a file in the pack's `company/retros/` directory, committed on the investigation ticket's branch with a Pull Request from that branch. The office refuses a Retro at any other path.
 *   **Gate:** The CEO answers at the Lesson gate. YES merges the Retro's Pull Request and closes the Mandate. NO returns it to LEARNING and wakes the engineering-lead with the CEO's reason.
+*   **Lessons:** A Retro proposes at most three, each a rule of at most 300 characters scoped to the company or to one Role. The gate shows the Retro and its Lessons, and the CEO's YES adopts them. From then on every brief loads the adopted Lessons scoped to the company and to its Role. Through the Assistant the CEO can also adopt a Lesson directly, such as an answer to a specialist's question about the project, and remove one.
 
 ### How the loop moves
 

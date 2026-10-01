@@ -25,9 +25,11 @@ class MockLlmTurnsStep(ScenarioStep):
 
 @dataclass
 class CeoActionStep(ScenarioStep):
-    """The CEO's answer at the gate that is waiting (``input``), or what the CEO's Session asks of the office (``calls``)."""
+    """The CEO's answer at the gate that is waiting (``input``, with the ``reason`` for a NO), or what
+    the CEO's Session asks of the office (``calls``)."""
     type: str = "ceo_action"
     input: str = ""
+    reason: str = ""
     calls: list[dict[str, Any]] = field(default_factory=list)
 
 @dataclass
@@ -231,7 +233,10 @@ def validate_scenario(data: Any) -> ValidationResult:
                         "or a 'calls' list."
                     )
                 else:
-                    parsed_steps.append(CeoActionStep(input=step["input"]))
+                    reason = step.get("reason", "")
+                    if not isinstance(reason, str) or "\n" in reason or bool(reason.strip()) != (step["input"] == "NO"):
+                        errors.append(f"Step at index {i} (ceo_action) must give a one-line 'reason' with NO, and only with NO.")
+                    parsed_steps.append(CeoActionStep(input=step["input"], reason=reason))
 
     if errors:
         return ValidationResult(valid=False, errors=errors)

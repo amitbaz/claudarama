@@ -52,6 +52,6 @@ def test_no_returns_to_investigating_and_discuss_stays_paused(db):
     _submit(db)
     assert review_diagnosis_gates(db, ask=lambda _: "discuss")
     assert _state(db)[:2] == ("PLANNING", 1)
-    answers = iter(["maybe", "no"])
+    answers = iter(["maybe", "no", "", "The cart is slow."])  # a NO is asked for its reason until it has one
     review_diagnosis_gates(db, ask=lambda _: next(answers))
     assert _state(db)[:2] == ("INVESTIGATING", 0)

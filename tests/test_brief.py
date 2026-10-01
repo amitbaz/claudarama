@@ -139,6 +139,7 @@ def test_the_assistants_brief_covers_mandates_setup_and_project_knowledge(tmp_pa
         # shaping a Mandate and naming the investigator
         "**a mandate**",
         "**investigating role**: researcher by default",
+        "call `grant` with the mandate, that ticket and the investigating role",
         # judged cases anchor a quality Mandate
         "this is right, this is wrong, and why",
         "attach them to the mandate",

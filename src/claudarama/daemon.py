@@ -174,13 +174,14 @@ def create_mcp_server(
         return {"ok": True}
 
     @server.tool()
-    def grant(mandate: str) -> dict:
-        """Grant a mandate. Owner token only."""
+    def grant(mandate: str, ticket: str, investigator: str = "researcher") -> dict:
+        """Grant a mandate, naming its investigation ticket and its investigating Role, whose turn
+        on that ticket is queued. Owner token only."""
         authenticate(db_path, token, owner_only=True)
-        grant_mandate(db_path, mandate)
+        grant_mandate(db_path, mandate, ticket, investigator)
         if gh:
             sync(db_path, gh)
-        return {"ok": True, "mandate": mandate}
+        return {"ok": True, "mandate": mandate, "ticket": ticket, "investigator": investigator}
 
     @server.tool(name="submit_diagnosis")
     def submit_diagnosis_tool(mandate: str, diagnosis_path: str) -> dict:

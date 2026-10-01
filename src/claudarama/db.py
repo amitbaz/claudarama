@@ -435,6 +435,74 @@ def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
                 conn.execute("DELETE FROM tickets WHERE mandate_id = ? AND drafted = 1", (mandate_id,))
 
 
+def tickets_by_mandate(db_path: Path, status: str) -> dict[str, list[str]]:
+    """Ticket ids of each unblocked mandate in *status*."""
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT m.id, k.id FROM mandates m JOIN tickets k ON k.mandate_id = m.id "
+            "WHERE m.status = ? AND m.blocked_on_ceo = 0 ORDER BY k.rowid", (status,)).fetchall()
+    out: dict[str, list[str]] = {}
+    for mandate, ticket in rows:
+        out.setdefault(mandate, []).append(ticket)
+    return out
+
+
+def mandates_of_tickets(db_path: Path, tickets: list[str]) -> list[str]:
+    """Mandates that own any of *tickets* (office ticket ids)."""
+    with sqlite3.connect(db_path) as conn:
+        return sorted({r[0] for t in tickets for r in conn.execute(
+            "SELECT mandate_id FROM tickets WHERE id = ?", (t,))})
+
+
+def ship_checked(db_path: Path, pull_request: int, head_commit: str) -> bool:
+    """True when a SHIP verdict is recorded for the PR's head commit."""
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT 1 FROM verdicts WHERE pull_request = ? AND head_commit = ? AND verdict = 'SHIP'",
+            (pull_request, head_commit)).fetchone() is not None
+
+
+def start_learning(db_path: Path, mandate_id: str) -> None:
+    """Move an unblocked EXECUTING mandate to LEARNING: its work is merged."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE mandates SET status = 'LEARNING' "
+            "WHERE id = ? AND status = 'EXECUTING' AND blocked_on_ceo = 0", (mandate_id,))
+
+
+def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str) -> None:
+    """Move a LEARNING mandate to CLOSED and pause it for the CEO's Lesson gate."""
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE mandates SET status = 'CLOSED', blocked_on_ceo = 1, lesson_path = ? "
+            "WHERE id = ? AND status = 'LEARNING' AND blocked_on_ceo = 0",
+            (lesson_path, mandate_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"mandate {mandate_id!r} is not LEARNING")
+
+
+def lesson_gates(db_path: Path) -> list[dict]:
+    """Mandates paused at the Lesson gate, awaiting the CEO."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, lesson_path FROM mandates "
+            "WHERE blocked_on_ceo = 1 AND status = 'CLOSED' ORDER BY granted_at, rowid"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_lesson_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
+    """YES unblocks the mandate, finally CLOSED; NO returns it to LEARNING, unblocked."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
+            "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'CLOSED'",
+            ("CLOSED" if approved else "LEARNING", mandate_id),
+        )
+
+
 def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False) -> None:
     """Put a ticket under a granted mandate; refuses an ungranted one."""
     with sqlite3.connect(db_path) as conn:

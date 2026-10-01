@@ -71,7 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
     # status subcommand
     status_parser = subparsers.add_parser(
         "status",
-        help="Show usage totals per person, ticket and ritual",
+        help="Show usage totals per person, ticket and ritual, and a report for each mandate: "
+             "each Role's turns, every NO and FAIL with its reason, every question, and each transcript",
     )
 
     return parser

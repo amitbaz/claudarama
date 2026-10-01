@@ -328,6 +328,73 @@ def test_only_the_ceo_removes_a_lesson_or_adopts_one_directly_and_a_brief_loads_
     assert result.passed, _why(result)
 
 
+# --- a per-mandate report of where the office went wrong (issue #97) -----------------
+
+STATUS = {"type": "ceo_action", "command": "status"}  # the CEO runs `claudarama status`
+TURN = "done, 100 in, 20 out, \\$0\\.01, transcript: /.+/turns/[0-9a-f-]{36}\\.jsonl\\n"  # the stand-in's usage
+
+
+def test_status_shows_for_a_mandate_each_role_with_its_turns_in_order_its_usage_and_each_transcript():
+    steps = [
+        M_GRANTED,
+        _on_ticket_1({"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}}),
+        CHALLENGED,
+        {"type": "ceo_action", "input": "NO", "reason": "Look at the cart."},
+        _on_ticket_1({"tool": "whoami"}),
+        STATUS,
+    ]
+
+    result = _walk(steps, includes=[
+        "CEO runs claudarama status\\n",
+        "\\n--- Mandate 'M': INVESTIGATING ---\\n"
+        "researcher \\(Amy\\): 2 turns, 200 in, 40 out, \\$0\\.02\\n"
+        f"  turn 1 on ticket 1: {TURN}"
+        f"  turn 3 on ticket 1: {TURN}"
+        "engineering-lead \\(Kif\\): 1 turn, 100 in, 20 out, \\$0\\.01\\n"
+        f"  turn 2 on ticket 1: {TURN}",
+    ])
+
+    assert result.passed, _why(result)
+
+
+def test_status_shows_each_question_and_blocked_message_a_role_sent():
+    def sends(receiver, msg_type, body):
+        return {"tool": "send", "args": {"receiver_id": receiver, "msg_type": msg_type, "body": body, "ticket": "1"}}
+
+    steps = [
+        M_GRANTED,
+        _on_ticket_1(
+            {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
+            sends("pm", "QUESTION", "Which page?"),
+        ),
+        {"type": "mock_llm_turns", "turns": [
+            {"role": "engineering-lead", "ticket": "1", "calls": [sends("ceo", "BLOCKED", "The eval will not run here.")]},
+        ]},
+        STATUS,
+    ]
+
+    result = _walk(steps, includes=[
+        # The pm's turn waits out the batch window: a turn that has not started has no transcript.
+        "pm \\(Hermes\\): 1 turn, 0 in, 0 out, \\$0\\.00\\n  turn 3 on ticket 1: queued, 0 in, 0 out, \\$0\\.00, no transcript\\n"
+        "QUESTION from researcher \\(Amy\\) to pm \\(Hermes\\) on ticket 1: Which page\\?\\n"
+        "BLOCKED from engineering-lead \\(Kif\\) to ceo on ticket 1: The eval will not run here\\.\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+def test_status_shows_a_failed_turn_with_its_error():
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "../../1"}}]}
+    turn = {"type": "mock_llm_turns", "turns": [{"ticket": "../../1", "calls": [{"run": ["pwd"]}]}]}
+
+    result = _walk([granted, turn, STATUS], includes=[
+        "researcher \\(Amy\\): 1 turn, 0 in, 0 out, \\$0\\.00\\n  turn 1 on ticket \\.\\./\\.\\./1: "
+        "failed: ValueError: ticket '\\.\\./\\.\\./1' cannot name a worktree, 0 in, 0 out, \\$0\\.00, no transcript\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),
@@ -339,6 +406,8 @@ def test_only_the_ceo_removes_a_lesson_or_adopts_one_directly_and_a_brief_loads_
     ({"type": "ceo_action", "input": "NO"}, "a one-line 'reason' with NO"),
     ({"type": "ceo_action", "input": "NO", "reason": "Wrong page.\nAnd too slow."}, "a one-line 'reason' with NO"),
     ({"type": "ceo_action", "input": "YES", "reason": "Looks right."}, "only with NO"),
+    ({"type": "ceo_action", "command": "open"}, "only the 'command' status"),
+    ({"type": "ceo_action", "command": "status", "input": "YES"}, "only the 'command' status"),
 ])
 def test_a_step_the_office_could_not_carry_out_is_refused_by_the_free_checker(step, problem):
     checked = validate_scenario(_scenario([step], includes=["^"]))

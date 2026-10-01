@@ -85,6 +85,7 @@ Steps run in order.
 
 - **`ceo_action` with `calls`**: the CEO's Session calls the office's tools with the owner token. Each call names a `tool` and its `args`.
 - **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, inside the Session, through the office's owner-only `list_gates` and `answer_gate` tools. A `NO` gives its one-line `reason`. The CEO learns of a gate from the office's notification, so the answer waits for one; a gate left at `DISCUSS` is answered again without a new one. An answer with no gate waiting, or with no notification that it opened, fails the scenario.
+- **`ceo_action` with `command`**: the CEO runs `claudarama status`, the only command there is: `{"type": "ceo_action", "command": "status"}`. The office shows what `status` prints, which ends with a report for each Mandate.
 - **`mock_llm_turns`**: each entry of `turns` is one scripted turn, with the `role` that runs it, the `ticket` whose thread wakes it, and its `calls`. A call is one of the office's tools (`tool`, `args`) or a command the turn runs where it works, which is its ticket's worktree (`run`). The turns of one step run side by side; the step ends when each has ended.
 
 The office wakes every Role itself, and after each step the walk shows who it woke. A scripted turn is the turn the office queued for that Role on that ticket; it acts when the walk reaches its step. A scripted turn the office did not wake fails the scenario. The office looks at GitHub when a turn ends, before the turn shows as ended, so a pull request a turn opens or a last ticket it closes wakes the next Role within that turn's step.
@@ -114,7 +115,20 @@ CEO's reason: <the reason>
 Mandate '<mandate>': <STATUS>
 Mandate '<mandate>': <STATUS>, waiting for the CEO
 The CEO's checkout is on <branch>; worktrees: <ticket-1, ticket-2, or none>
+CEO runs claudarama status
+<what status prints; for each Mandate:>
+
+--- Mandate '<mandate>': <STATUS> ---
+<role> (<name>): <n> turns, <tokens> in, <tokens> out, $<cost>
+  turn <its place among the Mandate's turns> on ticket <ticket>: <done, queued, or failed: the error>, <its usage>, transcript: <path>
+Challenge <STANDS or DISPUTED> from <the challenging Role> to <the investigating Role>: <the reasons> What was run: <what was run>
+NO from ceo to <the Role whose work it was> on ticket <ticket>: <Gate> gate: <the CEO's reason>
+FAIL from engineering-lead (<name>) to <the ticket's Role> on ticket <ticket>: Ship-check of #<pull request>: <the reason>
+QUESTION from <role> (<name>) to <role> (<name>) on ticket <ticket>: <the question>
+BLOCKED from <role> (<name>) to <role or ceo> on ticket <ticket>: <what blocks the work>
 ```
+
+Every scripted turn reports the same usage: 100 tokens in, 20 out, $0.01. A blank line ends each Mandate's report, so a check can hold a line to its Mandate: `"--- Mandate 'Fix the search': .+ ---\\n(?:.+\\n)*FAIL from "`.
 
 After each step come the turns the office queued during it, then what it told the CEO that is not a gate opening (a gate's notification is shown where the CEO answers it), then every Mandate's line, so a check can name the step, who it woke and the state it leaves: `"CEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
 

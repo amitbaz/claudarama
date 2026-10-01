@@ -235,6 +235,99 @@ def test_a_mandate_moves_to_learning_when_a_turn_closes_its_last_ticket():
     assert result.passed, _why(result)
 
 
+# --- Lessons reach briefs (issue #93) -------------------------------------------------
+
+
+def _retro(*lessons: tuple[str, str]) -> dict:
+    return {"tool": "submit_lessons", "args": {
+        "mandate": "M", "lesson_path": "company/retros/m.md",
+        "lessons": [{"text": text, "scope": scope} for text, scope in lessons],
+    }}
+
+
+# Mandate M walked to LEARNING, where the engineering-lead is woken on ticket 1 to write the Retro.
+M_LEARNING = [
+    M_GRANTED,
+    _on_ticket_1({"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}}),
+    CHALLENGED,
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [{"role": "pm", "ticket": "1", "calls": [
+        {"run": ["gh", "issue", "close", "1"]},
+        {"tool": "submit_epic", "args": {"mandate": "M", "tickets": {"2": "designer"}}},
+    ]}]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [{"role": "designer", "ticket": "2", "calls": [{"run": ["gh", "issue", "close", "2"]}]}]},
+]
+
+
+def test_a_retro_over_the_limits_on_its_lessons_is_refused():
+    rule = ("Run the eval five times.", "company")
+    retro = {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [
+        _retro(rule, rule, rule, rule),
+        _retro(("x" * 301, "company")),
+        _retro(("Run the eval five times.", "everyone")),
+        _retro(("x" * 300, "designer"), rule, rule),
+    ]}]}
+
+    result = _walk([*M_LEARNING, retro], includes=[
+        "engineering-lead calls submit_lessons .* -> REFUSED: .*at most 3 Lessons, not 4\\n"
+        "engineering-lead calls submit_lessons .* -> REFUSED: .*at most 300 characters, not 301\\n"
+        "engineering-lead calls submit_lessons .* -> REFUSED: .*scoped to 'company' or to one Role, not 'everyone'.*\\n"
+        # Within the limits it is taken, so each refusal left the mandate LEARNING.
+        "engineering-lead calls submit_lessons .* -> \\{\"ok\": true.*\\n"
+        "engineering-lead's turn: done\\nMandate 'M': CLOSED, waiting for the CEO\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+def test_only_the_ceo_removes_a_lesson_or_adopts_one_directly_and_a_brief_loads_those_in_its_scope_alone():
+    retro = {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [
+        _retro(
+            ("Run the eval five times.", "company"),
+            ("Check a page with its real images.", "designer"),
+            ("Name the commit a number came from.", "company"),
+        ),
+        {"tool": "list_lessons"},
+        {"tool": "remove_lesson", "args": {"lesson": 1}},
+        {"tool": "adopt_lesson", "args": {"text": "Skip the eval.", "scope": "company"}},
+    ]}]}
+    steps = [
+        *M_LEARNING, retro,
+        {"type": "ceo_action", "input": "YES"},
+        {"type": "ceo_action", "calls": [
+            {"tool": "list_lessons"},
+            {"tool": "remove_lesson", "args": {"lesson": 3}},
+            {"tool": "remove_lesson", "args": {"lesson": 3}},
+            {"tool": "adopt_lesson", "args": {"text": "x" * 301, "scope": "researcher"}},
+            {"tool": "adopt_lesson", "args": {"text": "The staging database is shared with the demo.", "scope": "researcher"}},
+            {"tool": "grant", "args": {"mandate": "N", "ticket": "3"}},
+        ]},
+        {"type": "mock_llm_turns", "turns": [{"ticket": "3", "calls": [{"tool": "whoami"}]}]},
+    ]
+
+    result = _walk(steps, includes=[
+        "engineering-lead calls list_lessons .* -> REFUSED: .*owner-only.*\\n"
+        "engineering-lead calls remove_lesson .* -> REFUSED: .*owner-only.*\\n"
+        "engineering-lead calls adopt_lesson .* -> REFUSED: .*owner-only",
+        # The CEO's YES adopted the three; each is listed with the number it is removed by.
+        "CEO calls list_lessons \\{\\} -> \\{\"lessons\": \\["
+        "\\{\"lesson\": 1, \"text\": \"Run the eval five times\\.\", \"scope\": \"company\", \"mandate\": \"M\"\\}, "
+        "\\{\"lesson\": 2, .*\"scope\": \"designer\", \"mandate\": \"M\"\\}, \\{\"lesson\": 3, .*\\]\\}\\n"
+        "CEO calls remove_lesson \\{\"lesson\": 3\\} -> \\{\"ok\": true.*\\n"
+        "CEO calls remove_lesson \\{\"lesson\": 3\\} -> REFUSED: .*no adopted Lesson 3.*\\n"
+        # A Lesson the CEO adopts directly keeps to the same length limit.
+        "CEO calls adopt_lesson .* -> REFUSED: .*at most 300 characters, not 301\\n"
+        "CEO calls adopt_lesson .* -> \\{\"ok\": true, \"lesson\": 4, \"scope\": \"researcher\"\\}\\n",
+        # The next Mandate's researcher is briefed with the company's Lesson and its own Role's:
+        # not the designer's, and not the one the CEO removed.
+        "\\| ## Lessons\\n\\n  \\| - Run the eval five times\\.\\n  \\| - The staging database is shared with the demo\\.\\n\\n"
+        "  \\| ---\\n\\n  \\| ## Ticket\\n\\n  \\| Working on ticket: 3\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),

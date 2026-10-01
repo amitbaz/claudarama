@@ -740,9 +740,35 @@ def start_learning(db_path: Path, mandate_id: str) -> None:
         _wake_on_investigation_ticket(db_path, mandate_id, "engineering-lead")
 
 
+LESSONS_PER_RETRO = 3
+LESSON_CHARS = 300
+
+
+def _lesson(lesson: dict) -> tuple[str, str]:
+    """A Lesson's text, on one line, and its scope; refused when the text is missing or over the
+    length limit, or the scope is neither the company nor a Role."""
+    # One line: the text is loaded into briefs as written, and a line break could pass for a section of one.
+    text, scope = " ".join(str(lesson.get("text") or "").split()), lesson.get("scope")
+    if not text:
+        raise ValueError("a Lesson needs its text: one short rule")
+    if len(text) > LESSON_CHARS:
+        raise ValueError(f"a Lesson is at most {LESSON_CHARS} characters, not {len(text)}")
+    if scope != "company" and scope not in CAST:
+        raise ValueError(
+            f"a Lesson is scoped to 'company' or to one Role, not {scope!r}; the Roles are: {', '.join(map(shown, CAST))}"
+        )
+    return text, scope
+
+
 def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str, lessons: list[dict] | None = None) -> None:
     """Move a LEARNING mandate to CLOSED and pause it for the CEO's Lesson gate, with the *lessons*
-    its Retro proposes, each a ``text`` and a ``scope``. They take the place of any it proposed before."""
+    its Retro proposes, each a ``text`` and a ``scope``. They take the place of any it proposed before.
+
+    More than three Lessons, or one outside a Lesson's limits, is refused and changes nothing."""
+    lessons = lessons or []
+    if len(lessons) > LESSONS_PER_RETRO:
+        raise ValueError(f"a Retro proposes at most {LESSONS_PER_RETRO} Lessons, not {len(lessons)}")
+    proposed = [_lesson(lesson) for lesson in lessons]
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
             "UPDATE mandates SET status = 'CLOSED', blocked_on_ceo = 1, pauses = pauses + 1, lesson_path = ? "
@@ -754,7 +780,7 @@ def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str, lessons: li
         conn.execute("DELETE FROM lessons WHERE mandate_id = ? AND status = 'proposed'", (mandate_id,))
         conn.executemany(
             "INSERT INTO lessons (text, scope, status, mandate_id) VALUES (?, ?, 'proposed', ?)",
-            [(lesson["text"], lesson["scope"], mandate_id) for lesson in lessons or []],
+            [(text, scope, mandate_id) for text, scope in proposed],
         )
 
 
@@ -788,6 +814,23 @@ def resolve_lesson_gate(db_path: Path, mandate_id: str, approved: bool, reason: 
                 "UPDATE lessons SET status = 'adopted' WHERE mandate_id = ? AND status = 'proposed'", (mandate_id,))
     if resolved and no:
         _wake_on_investigation_ticket(db_path, mandate_id, "engineering-lead", no)
+
+
+def adopt_lesson(db_path: Path, text: str, scope: str) -> int:
+    """Adopt a Lesson directly, as the CEO does with no Retro, within a Lesson's limits. Returns its number."""
+    text, scope = _lesson({"text": text, "scope": scope})
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "INSERT INTO lessons (text, scope, status) VALUES (?, ?, 'adopted')", (text, scope)).lastrowid
+
+
+def remove_lesson(db_path: Path, lesson: int) -> None:
+    """Remove an adopted Lesson: no later brief loads it."""
+    with sqlite3.connect(db_path) as conn:
+        removed = conn.execute(
+            "UPDATE lessons SET status = 'removed' WHERE id = ? AND status = 'adopted'", (lesson,)).rowcount
+    if not removed:
+        raise ValueError(f"no adopted Lesson {lesson}")
 
 
 def adopted_lessons(db_path: Path, role: str | None = None) -> list[dict]:

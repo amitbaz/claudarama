@@ -9,6 +9,7 @@ from typing import Iterator
 
 from claudarama.brief import build_brief
 from claudarama.db import (
+    adopted_lessons,
     ceo_messages,
     create_attach_code,
     diagnosis_gates,
@@ -278,7 +279,10 @@ def open_ceo_session(
     db_path = db_path or get_office_db_path()
     init_db(db_path)
     # The pack of the main checkout, where the Session's server finds it, from any subdirectory or worktree.
-    brief = build_brief(pack_dir or get_project_root() / PACK_DIR_NAME, "assistant")
+    brief = build_brief(
+        pack_dir or get_project_root() / PACK_DIR_NAME, "assistant",
+        lessons=[lesson["text"] for lesson in adopted_lessons(db_path, "assistant")],
+    )
     if messages := ceo_messages(db_path):  # everything sent to the CEO since the last open, together
         brief += "\n\n---\n\n## Messages for the CEO\n\n" + "\n".join(
             f"- {shown(m['sender'])}, {m['msg_type']} on {m['thread']}: {m['body']}" for m in messages

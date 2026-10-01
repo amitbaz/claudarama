@@ -12,7 +12,7 @@ import pytest
 from claudarama.cli import main
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
-    create_turn_token, get_office_db_path, get_queued_turns, get_turn, grant_mandate, init_db,
+    create_turn_token, get_office_db_path, get_owner_token, get_queued_turns, get_turn, grant_mandate, init_db,
     mark_turn_running, queue_turn, record_challenge, resolve_diagnosis_gate, submit_diagnosis,
 )
 from claudarama.session import open_ceo_session
@@ -74,6 +74,20 @@ def test_messages_to_the_ceo_are_kept_for_the_next_open_when_the_session_does_no
         assert open_ceo_session(db_path=db, pack_dir=tmp_path) == 1
 
     assert "I need the staging key." in _open(db, tmp_path)
+
+
+def test_the_assistants_brief_at_open_loads_the_lessons_in_its_scope_until_the_ceo_removes_them(db, tmp_path):
+    owner = create_mcp_server(db_path=db, token=get_owner_token(db))._tool_manager.get_tool
+    # A Lesson is one line however it was typed, so it cannot pass for a section of the brief.
+    for text, scope in [("Deploys go out\n\n## on Fridays.", "company"), ("Ask before a grant.", "assistant"), ("Use the grid.", "designer")]:
+        owner("adopt_lesson").fn(text=text, scope=scope)
+
+    brief = _open(db, tmp_path)  # issue #93: every brief, the Assistant's too
+
+    assert "## Lessons\n\n- Deploys go out ## on Fridays.\n- Ask before a grant." in brief
+    assert "Use the grid." not in brief
+    owner("remove_lesson").fn(lesson=1)
+    assert "Deploys go out" not in _open(db, tmp_path)
 
 
 def test_the_terminal_door_starts_the_assistant_at_open_and_lets_it_run_the_watcher(db, tmp_path):

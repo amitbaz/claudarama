@@ -16,6 +16,8 @@ from claudarama.worktrees import remove_finished_worktrees
 from claudarama.db import (
     CAST,
     Identity,
+    adopt_lesson,
+    adopted_lessons,
     get_office_db_path,
     get_person_by_role,
     get_project_root,
@@ -26,6 +28,7 @@ from claudarama.db import (
     record_challenge,
     redeem_attach_code,
     register_ticket,
+    remove_lesson,
     resolve_token,
     shown,
     store_message,
@@ -254,6 +257,31 @@ def create_mcp_server(
         authenticate(db_path, token)
         submit_lessons(db_path, mandate, lesson_path, lessons)
         return {"ok": True, "mandate": mandate, "status": "CLOSED", "blocked_on_ceo": True}
+
+    @server.tool()
+    def list_lessons() -> dict:
+        """The adopted Lessons, each with the number it is removed by, its scope and the mandate
+        whose Retro proposed it (none when the CEO adopted it directly). Owner token only."""
+        authenticate(db_path, token, owner_only=True)
+        return {"lessons": [
+            {"lesson": lesson["id"], "text": lesson["text"], "scope": lesson["scope"], "mandate": lesson["mandate_id"]}
+            for lesson in adopted_lessons(db_path)
+        ]}
+
+    @server.tool(name="adopt_lesson")
+    def adopt_lesson_tool(text: str, scope: str = "company") -> dict:
+        """Adopt a Lesson the CEO gave directly: one rule of at most 300 characters, scoped to
+        "company" or to one Role. Every later brief in its scope loads it. Owner token only."""
+        authenticate(db_path, token, owner_only=True)
+        return {"ok": True, "lesson": adopt_lesson(db_path, text, scope), "scope": scope}
+
+    @server.tool(name="remove_lesson")
+    def remove_lesson_tool(lesson: int) -> dict:
+        """Remove an adopted Lesson, by its number from `list_lessons`: no later brief loads it.
+        Owner token only."""
+        authenticate(db_path, token, owner_only=True)
+        remove_lesson(db_path, lesson)
+        return {"ok": True, "lesson": lesson}
 
     @server.tool()
     def ticket_ready(ticket: str, mandate: str, hard: bool = False) -> dict:

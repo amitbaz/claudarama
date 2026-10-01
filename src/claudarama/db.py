@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE TABLE IF NOT EXISTS tokens (
     token TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,  -- 'turn' or 'owner'
+    kind TEXT NOT NULL,  -- 'turn', 'owner' or 'attach' (a one-time code, never an identity)
     person_id TEXT,
     turn_id TEXT,
     ended_at TIMESTAMP   -- unused since `talk` was removed; kept so existing databases still match
@@ -656,6 +656,23 @@ def get_owner_token(db_path: Path) -> str:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute("SELECT token FROM tokens WHERE kind = 'owner'").fetchone()
     return row[0] if row else _new_token(db_path, "owner")
+
+
+def create_attach_code(db_path: Path) -> str:
+    """Mint the one-time code that lets a server process started without a token become the
+    owner's (the plugin door). Only the newest code works."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DELETE FROM tokens WHERE kind = 'attach'")
+    return _new_token(db_path, "attach")
+
+
+def redeem_attach_code(db_path: Path, code: str) -> str | None:
+    """Spend an attach code: the owner token, or None when the code is unknown or already spent."""
+    if not db_path.exists():  # nothing was opened; connecting would create an empty database
+        return None
+    with sqlite3.connect(db_path) as conn:
+        spent = conn.execute("DELETE FROM tokens WHERE token = ? AND kind = 'attach'", (code,)).rowcount
+    return get_owner_token(db_path) if spent else None
 
 
 def resolve_token(db_path: Path, token: str | None) -> Identity | None:

@@ -52,9 +52,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # open subcommand
-    subparsers.add_parser(
+    open_parser = subparsers.add_parser(
         "open",
         help="Open the office: start the CEO's Session with the office server attached",
+    )
+    open_parser.add_argument(
+        "--attach",
+        action="store_true",
+        help="Open in the Claude Code session this runs in instead of starting one (what /claudarama:open runs)",
     )
 
     # status subcommand
@@ -82,7 +87,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "open":
         from claudarama.session import open_ceo_session
 
-        return open_ceo_session()
+        return open_ceo_session(attach=args.attach)
 
     if args.command == "eval":
         from claudarama.scenario.cli import run_eval_cli

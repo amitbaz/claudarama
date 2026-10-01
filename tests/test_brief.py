@@ -71,9 +71,9 @@ def test_a_role_file_outside_the_length_range_fails():
     assert check_role_file(_role_text(lines=40)) == check_role_file(_role_text(lines=80)) == []
 
 
-def test_the_five_roles_the_loop_cannot_run_without_have_core_role_files():
-    loop_roles = {"assistant", "researcher", "pm", "engineering-lead", "fullstack-engineer"}
-    assert loop_roles <= {path.stem for path in ROLES_DIR.glob("*.md")}
+@pytest.mark.parametrize("role", sorted(CAST))
+def test_every_role_in_the_cast_has_a_core_role_file(role):
+    assert (ROLES_DIR / f"{role}.md").is_file()
 
 
 @pytest.mark.parametrize("path", sorted(ROLES_DIR.glob("*.md")), ids=lambda path: path.stem)
@@ -105,14 +105,25 @@ def test_every_brief_carries_the_shared_office_rules_once(tmp_path, role):
 
 @pytest.mark.parametrize("role", ["researcher", "eval-engineer"])
 def test_an_investigating_roles_brief_requires_a_diagnosis_to_report_spread_and_rivals(tmp_path, role):
-    if not (ROLES_DIR / f"{role}.md").is_file():
-        pytest.skip(f"no core role file for {role} yet")
     assert _missing(build_brief(tmp_path, role), [
         "the measure the finding relies on",
         "how much it varies across repeated runs of the unchanged system",
         "the code, the prompts, the bars, the tests, the overall approach, and something missing",
         "what was run to check it",
         "not ruled out without evidence",
+    ]) == []
+
+
+@pytest.mark.parametrize("role", [
+    "fullstack-engineer", "frontend-engineer", "database-architect",
+    "designer", "prompt-engineer", "eval-engineer",
+])
+def test_a_ticket_roles_brief_hands_one_pull_request_to_the_engineering_lead(tmp_path, role):
+    assert _missing(build_brief(tmp_path, role), [
+        "one pull request that closes the ticket",
+        "the engineering-lead, who is woken when the pull request opens",
+        "**bars and expectations**",
+        "`question` to the pm",
     ]) == []
 
 

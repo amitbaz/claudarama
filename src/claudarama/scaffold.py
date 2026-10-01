@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -11,81 +13,18 @@ DEFAULT_COMPANY_MD = """# Company Charter
 """
 
 DEFAULT_ORG_YAML = """# Claudarama Org Configuration
-departments:
-  leadership:
-    open: true
-    roles:
-      - ceo
-      - assistant
-      - cto
-      - cpo
-  engineering:
-    open: true
-    roles:
-      - engineering-lead
-      - fullstack-engineer
-      - frontend-engineer
-      - database-architect
-  product:
-    open: true
-    roles:
-      - pm
-  design:
-    open: true
-    roles:
-      - designer
-  ai:
-    open: true
-    roles:
-      - prompt-engineer
-      - eval-engineer
-  research:
-    open: true
-    roles:
-      - head-of-research
-      - researcher
-  marketing:
-    open: false
-    unlock_milestone: "first testers"
-  support:
-    open: false
-    unlock_milestone: "first testers"
-  finance_ops:
-    open: false
-    unlock_milestone: "first paid spend"
-
-concurrency_cap:
-  total: 7
-  engineering: 3
-
-stuck_turn_timeout_minutes: 20
+concurrency: 3
+stall_timeout_minutes: 20
 """
 
 DEFAULT_GATES_YAML = """# Claudarama Gates Configuration
-owner_only_actions:
-  - money_and_spend
-  - staging_and_production_deploys
-  - hosted_databases
-  - secrets_and_repo_settings
-  - mandate_approval
-  - direction_and_success_bar
-
-spend_caps:
-  ledger_turn_max_usd: 5.0
-  ritual_sonnet_max_usd: 1.0
-  review_opus_max_usd: 2.0
-
 deny_rules:
   - "Bash(gh auth switch *)"
 """
 
 DEFAULT_STACK_YAML = """# Claudarama Stack Configuration
-checkout_path: "."
+# A Turn may run only the commands listed under commands, e.g.  test: "pytest"
 commands:
-  test: "pytest"
-  local_ci: "pytest"
-migration_rules: []
-stack_lock: false
 """
 
 PACK_DIR_NAME = ".claudarama"
@@ -100,16 +39,24 @@ DEFAULT_FILES = {
 DEFAULT_DIRECTORIES = [
     "profiles",
     "scenarios",
-    "plugins",
-    "company/okrs",
-    "company/all-hands",
+    "company/diagnoses",
     "company/retros",
-    "company/reviews",
 ]
 
 
-def init_pack(target_path: Path | None = None) -> tuple[bool, str]:
+def gh_problem() -> str | None:
+    """What to fix before the office can run, or None when `gh` is installed and signed in."""
+    if shutil.which("gh") is None:
+        return "gh (the GitHub CLI) is not installed. Install it from https://cli.github.com, then run setup again."
+    if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode != 0:
+        return "gh is not signed in. Run `gh auth login`, then run setup again."
+    return None
+
+
+def setup_pack(target_path: Path | None = None) -> tuple[bool, str]:
     """Scaffold a default .claudarama/ pack in target_path (defaults to cwd)."""
+    if problem := gh_problem():
+        return False, problem
     base_path = target_path if target_path is not None else Path.cwd()
     pack_dir = base_path / PACK_DIR_NAME
 
@@ -126,4 +73,4 @@ def init_pack(target_path: Path | None = None) -> tuple[bool, str]:
         file_path = pack_dir / filename
         file_path.write_text(content.strip() + "\n", encoding="utf-8")
 
-    return True, f"Initialized Claudarama pack in {pack_dir}"
+    return True, f"Set up Claudarama pack in {pack_dir}"

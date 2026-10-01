@@ -31,6 +31,7 @@ The office has no daemon and nothing to start first (ADR-0003). The office serve
 *   **State:** Storage is handled by one SQLite file per office (`~/.claudarama/<project>/office.db`), using full-text search. All of the office's server processes share it, so correctness rests on SQLite's own locking rather than on a single writer. The server makes no model calls and computes no embeddings itself.
 *   **Running turns:** The server that belongs to the CEO's Session launches the queued turns and monitors each until it finishes. It does so under the office's lock, so only one Session runs an office: a second Session on the same project leaves the running office alone, and takes over if the first closes.
 *   **Pause and resume:** The office works only while a Session is open. Closing the Session stops the running turns and pauses the office; queued work stays in the database. At the next open, turns that were left running are queued again.
+*   **Worktrees:** Each ticket has one worktree on one branch (`ticket-<id>`), which the Session's server adds beside the main checkout, in `<checkout>-worktrees/`. Every turn for the ticket runs there, so the CEO's own checkout is never switched to another branch, and a turn that was interrupted finds its work where it left it. The worktrees stay out of `~/.claudarama/`, which no turn may reach. Once the ticket's pull request is merged or closed the server removes the worktree and leaves the branch; a worktree that holds uncommitted work, or whose ticket has a turn waiting, is kept.
 *   **Runtime (Conversations over Processes):** For each turn the Session's server builds a fresh brief and starts a fresh Claude Code conversation (`claude -p`). It streams the JSON output to a transcript beside the office's database, and then the process exits. A failed launch records its error output on the turn. There are no idle CPU costs for waiting members.
 *   **Concurrency:** An office runs at most a set number of turns at once (`concurrency` in `org.yaml`, default 3), and a Role runs one turn at a time. A machine-wide cap (default 10) is kept through a shared slots file under `~/.claudarama/`, since no single process sees every office.
 
@@ -38,8 +39,8 @@ The office has no daemon and nothing to start first (ADR-0003). The office serve
 
 Communication operates primarily in the terminal.
 
-*   **The Assistant (`claudarama open`):** The CEO's Session. It batches reports and requests decisions on blocking gates.
-*   **Push Notifications:** If the CEO is AFK and the office hits a blocking gate or finishes a mandate, the Session's server triggers a native macOS push notification. With no Session open the office is paused, so there is nothing to notify.
+*   **The Assistant (`claudarama open`):** The CEO's Session. At open it shows, together, the messages addressed to the CEO since the last open. It lists the gates that are waiting and passes the CEO's answer to the office with the owner-only `list_gates` and `answer_gate` tools, so YES, NO and DISCUSS are all resolved inside the Session.
+*   **Notifications:** When a gate opens, the Session's server sends a macOS notification. A PR gate counts from the SHIP verdict on its head commit, which is when the office starts to wait on the CEO. The Assistant also keeps a watcher (`claudarama watch`) running in the background of the Session: it ends when a gate opens, which wakes the Assistant, and the Assistant sends Claude Code's own push notification, which reaches the phone when Remote Control is connected. With no Session open the office is paused, so there is nothing to notify.
 
 ## 4. Gate Enforcement
 

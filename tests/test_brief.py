@@ -166,3 +166,21 @@ def test_the_assistants_brief_covers_mandates_setup_and_project_knowledge(tmp_pa
         "only when it applies to that role alone",
         "do not generate overlays from a scan of the repository",
     ]) == []
+
+
+def test_the_assistants_brief_covers_reaching_the_ceo_and_answering_gates_in_the_session(tmp_path):
+    assert _missing(build_brief(tmp_path, "assistant"), [
+        # the watcher wakes the Session when a gate opens, and the Assistant pushes to the phone
+        "run `claudarama watch` in the background",
+        "send a push with the `pushnotification` tool",
+        "start the watcher again",
+        # every gate is listed and answered inside the Session, DISCUSS included
+        "call `list_gates` and present each gate",
+        "pass the ceo's yes or no to `answer_gate`",
+        "a no goes with the ceo's one-line reason",
+        "discuss is a conversation",
+        "until the ceo says yes or no",
+        # messages addressed to the CEO are shown together at open
+        "**messages for the ceo**",
+        "together and in full",
+    ]) == []

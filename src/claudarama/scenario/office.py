@@ -1,10 +1,9 @@
 """A real office for a scenario's steps: a temporary git repository, the office server, its turn
-runner, its brief builder and its database. Only three edges are stand-ins (``stand_ins.py``):
-``claude`` for each turn, ``gh``, and the CEO's answers.
+runner, its brief builder and its database. Only four edges are stand-ins (``stand_ins.py``):
+``claude`` for each turn, ``gh``, the notification sink (``osascript``), and the CEO's answers.
 """
 import asyncio
 import contextlib
-import io
 import json
 import os
 import shlex
@@ -21,7 +20,8 @@ from claudarama.db import get_owner_token, get_turn, init_db, list_turns, mandat
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.scenario.stand_ins import RESULT, call
 from claudarama.scenario.validator import CeoActionStep, Scenario
-from claudarama.session import mcp_config, review_gates
+from claudarama.session import mcp_config
+from claudarama.worktrees import worktrees_root
 
 STAND_INS = Path(__file__).with_name("stand_ins.py")
 
@@ -43,7 +43,12 @@ def project(root: Path, name: str, org_yaml: str = "") -> tuple[Path, Path]:
     project = root / name
     (project / PACK_DIR_NAME).mkdir(parents=True)
     (project / PACK_DIR_NAME / "org.yaml").write_text(org_yaml)
-    subprocess.run(["git", "init", "--quiet", str(project)], check=True)
+    subprocess.run(["git", "init", "--quiet", "--initial-branch=main", str(project)], check=True)
+    subprocess.run(  # a ticket's worktree starts from a commit
+        ["git", "-C", str(project), "-c", "user.name=CEO", "-c", "user.email=ceo@example.com",
+         "commit", "--quiet", "--allow-empty", "-m", "Start"],
+        check=True,
+    )
     db = root / "home" / ".claudarama" / name / "office.db"
     init_db(db)
     return project, db
@@ -76,7 +81,7 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
     """Take each step in turn, adding what the office shows to *seen*. Returns why it stopped short, if it did."""
     office, db = project(root, "office")
     bin_dir, state = root / "bin", root / "stand-ins"
-    for program in ("claude", "gh"):
+    for program in ("claude", "gh", "osascript"):
         script(bin_dir / program, shlex.join(["exec", sys.executable, str(STAND_INS), program, str(state)]) + ' "$@"')
 
     def turns_of(step) -> list[dict]:
@@ -94,27 +99,39 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
         (state / f"{role}.json").write_text(json.dumps([{**turn, "go": f"{role}.{n}.go"} for n, turn in enumerate(turns)]))
     reached: dict[str, int] = {}  # how many of each Role's scripted turns the walk has reached
 
-    def gh(args: list[str]) -> str:
-        return subprocess.run([bin_dir / "gh", *args], check=True, capture_output=True, text=True).stdout
+    def notifications() -> list[str]:
+        """What the office has told the CEO on the desktop so far, as the stand-in sink kept it."""
+        told = state / "notifications"
+        return [json.loads(line) for line in told.read_text().splitlines()] if told.exists() else []
 
-    def answer(reply: str, reason: str) -> None:
-        """The CEO's *reply* at the first gate that is waiting, with the *reason* a NO is asked for;
-        any other gate is left for a later step."""
-        scripted = [(reply, f"CEO answers {reply}")] + [(reason, f"CEO's reason: {reason}")] * (reply == "NO")
-        replies = []
+    told: list[str] = []  # the notifications already shown
+    discussing: set[str] = set()  # gates the CEO left at DISCUSS: no new notification brings them back
 
-        def ask(_question: str) -> str:
-            said, line = scripted.pop(0) if scripted else ("DISCUSS", "CEO answers DISCUSS")
-            replies.append(said)
-            print(line)
-            return said
+    async def answer(reply: str, reason: str, ceo: ClientSession) -> None:
+        """The CEO's *reply* at the first gate that is waiting, with the *reason* a NO is asked for,
+        given inside the Session through the office's owner-only gate tools; any other gate is left
+        for a later step.
 
-        shown = io.StringIO()
-        with contextlib.redirect_stdout(shown):
-            review_gates(db, gh, ask)
-        seen.extend(shown.getvalue().splitlines())
-        if not replies:
+        The CEO learns that a gate opened from the office's notification, so the answer waits for one."""
+        gates = json.loads((await ceo.call_tool("list_gates", {})).content[0].text)["gates"]
+        if not gates:
             raise Stuck(f"the CEO answered {reply}, but no gate was waiting")
+        gate = gates[0]
+        if gate["gate"] not in discussing:
+            try:
+                await until(lambda: len(notifications()) > len(told))
+            except Stuck:
+                raise Stuck(f"the office sent no notification that the gate {gate['gate']!r} opened") from None
+            new = notifications()[len(told):]
+            told.extend(new)
+            seen.extend(f"Notification: {text}" for text in new)
+        seen.append(gate["shows"])
+        given = {"gate": gate["gate"], "answer": reply} | ({"reason": reason} if reply == "NO" else {})
+        answered = await ceo.call_tool("answer_gate", given)
+        seen.append(f"CEO answers {reply}" + (f" -> REFUSED: {answered.content[0].text}" if answered.isError else ""))
+        if reply == "NO":
+            seen.append(f"CEO's reason: {reason}")
+        (discussing.add if reply == "DISCUSS" else discussing.discard)(gate["gate"])
 
     def transcript(turn_id: str) -> str:
         path = db.parent / "turns" / f"{turn_id}.jsonl"  # where the Session's server keeps it
@@ -133,7 +150,7 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             for asked in step.calls:
                 seen.append(await call(ceo, "CEO", asked["tool"], asked.get("args", {})))
             if step.input:
-                answer(step.input, step.reason)
+                await answer(step.input, step.reason, ceo)
         else:
             taken = []
             for turn in turns_of(step):
@@ -162,6 +179,9 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             f"Mandate {m['id']!r}: {m['status']}" + (", waiting for the CEO" if m["blocked_on_ceo"] else "")
             for m in mandate_states(db)
         )
+        on = subprocess.run(["git", "-C", str(office), "branch", "--show-current"], capture_output=True, text=True)
+        worktrees = sorted(path.name for path in worktrees_root(office).glob("*"))
+        seen.append(f"The CEO's checkout is on {on.stdout.strip()}; worktrees: {', '.join(worktrees) or 'none'}")
 
     async with session(office, db, bin_dir) as ceo:
         try:

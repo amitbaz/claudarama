@@ -1,8 +1,9 @@
-"""The stand-ins a scenario's office runs in place of ``claude`` and ``gh``.
+"""The stand-ins a scenario's office runs in place of ``claude``, ``gh`` and ``osascript``.
 
-Run by path, so a turn starts without loading the office: ``stand_ins.py <claude|gh> <state
-directory> <the arguments the real program was given>``. The state directory holds each Role's
-scripted turns (``<role>.json``) and the stand-in GitHub (``gh.json``).
+Run by path, so a turn starts without loading the office: ``stand_ins.py <claude|gh|osascript>
+<state directory> <the arguments the real program was given>``. The state directory holds each
+Role's scripted turns (``<role>.json``), the stand-in GitHub (``gh.json``) and the notifications
+the office sent (``notifications``).
 """
 import asyncio
 import json
@@ -89,14 +90,18 @@ def gh(state: Path, argv: list[str]) -> None:
         case ["pr", "create", *flags]:
             given = dict(zip(flags[::2], flags[1::2]))
             number = FIRST_PULL_REQUEST + len(hub["prs"])
+            branch = subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
             hub["prs"].append({
                 "number": number, "title": given["--title"], "state": "OPEN",
-                "headRefOid": f"commit-{number}",  # the stand-in knows no git; a scripted Ship-check names this
+                "headRefName": branch,  # as gh has it: the branch checked out where the turn runs
+                "headRefOid": f"commit-{number}",  # no commit is pushed; a scripted Ship-check names this
                 "closingIssuesReferences": [{"number": int(n)} for n in re.findall(r"#(\d+)", given.get("--body", ""))],
             })
             print(f"https://github.com/office/project/pull/{number}")
         case ["pr", "list", "--state", "open", *_]:
             print(json.dumps([p for p in hub["prs"] if p["state"] == "OPEN"]))
+        case ["pr", "list", "--head", branch, "--state", "all", *_]:
+            print(json.dumps([p for p in hub["prs"] if p["headRefName"] == branch]))
         case ["pr", "merge", number, "--merge", "--match-head-commit", head]:
             if pr(number)["headRefOid"] != head:
                 sys.exit(f"head commit of #{number} is not {head}")
@@ -110,9 +115,16 @@ def gh(state: Path, argv: list[str]) -> None:
     path.write_text(json.dumps(hub))
 
 
+def osascript(state: Path, argv: list[str]) -> None:
+    """The notification sink: what the office would have shown on the CEO's desktop is kept in
+    ``notifications``, a line each, and nothing is shown."""
+    with (state / "notifications").open("a") as told:
+        told.write(json.dumps(argv[-1]) + "\n")
+
+
 if __name__ == "__main__":
     program, state, argv = sys.argv[1], Path(sys.argv[2]), sys.argv[3:]
     if program == "claude":
         asyncio.run(claude(state, argv))
     else:
-        gh(state, argv)
+        {"gh": gh, "osascript": osascript}[program](state, argv)

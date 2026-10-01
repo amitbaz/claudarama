@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Open in the Claude Code session this runs in instead of starting one (what /claudarama:open runs)",
     )
 
+    # watch subcommand
+    subparsers.add_parser(
+        "watch",
+        help="Wait until a gate opens, say which, and end (the Assistant runs this in the background of the Session)",
+    )
+
     # status subcommand
     status_parser = subparsers.add_parser(
         "status",
@@ -88,6 +94,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         from claudarama.session import open_ceo_session
 
         return open_ceo_session(attach=args.attach)
+
+    if args.command == "watch":
+        from claudarama.db import get_office_db_path
+        from claudarama.session import watch_gates
+
+        print(next(watch_gates(get_office_db_path())), flush=True)
+        return 0
 
     if args.command == "eval":
         from claudarama.scenario.cli import run_eval_cli

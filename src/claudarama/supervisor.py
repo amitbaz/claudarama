@@ -23,6 +23,7 @@ import threading
 from claudarama.brief import build_brief
 from claudarama.gate import OFFICE_ENV, write_turn_settings
 from claudarama.session import TOKEN_ENV, mcp_config
+from claudarama.worktrees import ticket_worktree
 from claudarama.db import (
     ticket_from_thread,
     create_turn_token,
@@ -48,6 +49,7 @@ class TurnLaunch:
     brief: str
     cmd: list[str]
     env: dict[str, str] | None = None  # None = inherit the supervisor's environment
+    cwd: Path | None = None  # the ticket's worktree; None = where the office runs
 
 
 @dataclass
@@ -141,7 +143,13 @@ def is_machine_paused() -> bool:
         return False
 
 def notify_ceo(msg: str) -> None:
-    subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claudarama"'], capture_output=True)
+    """The notification sink: a macOS notification on the CEO's desktop. Nothing where there is no ``osascript``."""
+    # The message is passed as an argument, never spliced into the script: it may quote a turn's own words.
+    script = 'on run argv\ndisplay notification (item 1 of argv) with title "Claudarama"\nend run'
+    try:
+        subprocess.run(["osascript", "-e", script, msg], capture_output=True)
+    except OSError:
+        pass
 
 def acquire_machine_slot(max_slots: int = 10) -> int:
     """Block until a machine slot is acquired. Returns file descriptor."""
@@ -253,6 +261,7 @@ class Supervisor:
                 proc = subprocess.Popen(
                     launch.cmd,
                     env=launch.env,
+                    cwd=launch.cwd,
                     stdout=subprocess.PIPE,
                     stderr=err,
                     start_new_session=True,
@@ -388,8 +397,12 @@ class Supervisor:
             else settings.stall_timeout
         )
 
+        # Every turn for a ticket runs in that ticket's worktree; made before the turn is given a token.
+        ticket = ticket_from_thread(turn["thread"])
+        worktree = ticket_worktree(self.pack_dir.parent, ticket) if ticket else None
         launch = self.build_launch(turn, settings)
-        
+        launch.cwd = worktree
+
         slot_fd = acquire_machine_slot(10)
         try:
             save_brief(self.db_path, turn_id, launch.brief)
@@ -442,8 +455,9 @@ class Supervisor:
                 and settings.escalate
                 and turn["model"] != settings.escalation_model
             ):
-                branch = f"escalated/{turn_id[:8]}"
-                if self._create_branch(branch):
+                # A ticket has one branch, the one its worktree is on; the retry carries on there.
+                branch = None if ticket else f"escalated/{turn_id[:8]}"
+                if branch is None or self._create_branch(branch):
                     queue_turn(
                         self.db_path,
                         turn["person_id"],

@@ -17,7 +17,7 @@ The Core is the project-agnostic engine, located in this repository. It contains
 The Pack lives inside the target project's repository. It injects context into the Core:
 *   `company.md`: The charter and Key Results.
 *   `stack.yaml`: The allowed CLI commands, tests, and CI logic.
-*   `org.yaml`: The concurrency caps and unlockable departments.
+*   `org.yaml`: The concurrency cap and turn health settings.
 *   `gates.yaml`: Extra deny rules and key access routes.
 *   `profiles/*.md`: Project-specific overlays appended to the generic crafts.
 

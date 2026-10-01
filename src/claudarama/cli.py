@@ -2,7 +2,7 @@ import argparse
 import sys
 from typing import Sequence
 
-from claudarama.scaffold import init_pack
+from claudarama.scaffold import setup_pack
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -16,10 +16,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Available commands",
     )
 
-    # init subcommand
+    # setup subcommand
     subparsers.add_parser(
-        "init",
-        help="Initialize a default .claudarama pack in the current directory",
+        "setup",
+        help="Scaffold a default .claudarama pack in the current directory",
     )
 
     # eval subcommand
@@ -111,9 +111,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.print_help()
         return 0
 
-    if args.command == "init":
-        success, message = init_pack()
-        print(message)
+    if args.command == "setup":
+        success, message = setup_pack()
+        print(message, file=sys.stdout if success else sys.stderr)
         return 0 if success else 1
 
     if args.command == "up":

@@ -7,11 +7,13 @@ from claudarama.brief import build_brief
 from claudarama.db import (
     diagnosis_gates,
     end_session,
+    epic_gates,
     get_office_db_path,
     get_owner_token,
     get_person_by_name,
     init_db,
     resolve_diagnosis_gate,
+    resolve_epic_gate,
     start_session,
 )
 
@@ -29,18 +31,38 @@ def mcp_config(host: str, port: int, token: str) -> str:
     return json.dumps({"mcpServers": {"claudarama": {"type": "http", "url": url}}})
 
 
-def review_diagnosis_gates(db_path: Path, ask=input) -> bool:
-    """Ask the CEO YES/NO/DISCUSS for each paused Diagnosis. True when any is left for discussion."""
+def _review(gates: list[dict], describe, resolve, ask) -> bool:
+    """Ask the CEO YES/NO/DISCUSS for each gate. True when any is left for discussion."""
     discuss = False
-    for gate in diagnosis_gates(db_path):
-        print(f"Diagnosis gate: mandate {gate['id']!r}, diagnosis at {gate['diagnosis_path']}")
+    for gate in gates:
+        print(describe(gate))
         while (answer := ask("YES / NO / DISCUSS? ").strip().upper()) not in ("YES", "NO", "DISCUSS"):
             print("Please answer YES, NO or DISCUSS.")
         if answer == "DISCUSS":
             discuss = True
         else:
-            resolve_diagnosis_gate(db_path, gate["id"], answer == "YES")
+            resolve(gate["id"], answer == "YES")
     return discuss
+
+
+def review_diagnosis_gates(db_path: Path, ask=input) -> bool:
+    """Ask about each paused Diagnosis. True when any is left for discussion."""
+    return _review(
+        diagnosis_gates(db_path),
+        lambda g: f"Diagnosis gate: mandate {g['id']!r}, diagnosis at {g['diagnosis_path']}",
+        lambda mandate, ok: resolve_diagnosis_gate(db_path, mandate, ok),
+        ask,
+    )
+
+
+def review_epic_gates(db_path: Path, ask=input) -> bool:
+    """Ask about each paused Epic, listing its tickets. True when any is left for discussion."""
+    return _review(
+        epic_gates(db_path),
+        lambda g: f"Epic gate: mandate {g['id']!r}, tickets:\n" + "\n".join(f"  - {t}" for t in g["tickets"]),
+        lambda mandate, ok: resolve_epic_gate(db_path, mandate, ok),
+        ask,
+    )
 
 
 def open_ceo_session(
@@ -54,6 +76,7 @@ def open_ceo_session(
     init_db(db_path)
     if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
         review_diagnosis_gates(db_path)
+        review_epic_gates(db_path)
     config = mcp_config(host, port, get_owner_token(db_path))
     return _run_claude([claude_binary, "--mcp-config", config], claude_binary)
 

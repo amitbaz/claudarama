@@ -30,8 +30,9 @@ def office(tmp_path):
     """``office(config)``: an MCP client on a server process started from *config*."""
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    (fake_bin / "gh").write_text("#!/bin/sh\nexit 1\n")  # the server never reaches the real GitHub
-    (fake_bin / "gh").chmod(0o755)
+    for name in ("gh", "claude"):  # the server never reaches the real GitHub, nor launches a real turn
+        (fake_bin / name).write_text("#!/bin/sh\nexit 1\n")
+        (fake_bin / name).chmod(0o755)
 
     @asynccontextmanager
     async def office(config: str):
@@ -124,7 +125,9 @@ def test_only_the_owners_server_may_grant_a_mandate(db, tmp_path, serve):
 
     granted = serve(mcp_config(db, get_owner_token(db)), lambda c: c.call_tool("grant", {"mandate": "M1"}))
     assert not granted.isError
-    assert not serve(turn_config, as_turn)[1].isError  # the turn's server sees the owner's grant
+    # The owner's server opened the office, which took back the turn above as one left running.
+    _, turn_config = _turn_config(db, tmp_path)
+    assert not serve(turn_config, as_turn)[1].isError  # a turn's server sees the owner's grant
 
 
 def test_two_offices_are_open_at_once_with_no_port_between_them(tmp_path, office):

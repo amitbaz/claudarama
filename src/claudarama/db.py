@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS turns (
     branch TEXT,
     kind TEXT NOT NULL DEFAULT 'work',  -- 'work', 'ritual' or 'assistant'
     refusal TEXT,
+    error TEXT,  -- the error output of a failed launch
     input_tokens INTEGER,
     output_tokens INTEGER,
     cache_read_tokens INTEGER,
@@ -135,11 +136,10 @@ CREATE TABLE IF NOT EXISTS checkpoints (
 """
 
 
-def get_project_name() -> str:
-    """Office identity: the main checkout's directory name plus a hash of its real path.
+def get_project_root() -> Path:
+    """The repository's main checkout, from any subdirectory or linked worktree of it.
 
-    The same from any subdirectory or linked worktree; two repositories that share a
-    directory name differ by the hash.
+    Outside a repository, the working directory.
     """
     root = Path.cwd().resolve()
     try:
@@ -153,6 +153,16 @@ def get_project_name() -> str:
             root = common.parent if common.name == ".git" else common
     except OSError:
         pass
+    return root
+
+
+def get_project_name() -> str:
+    """Office identity: the main checkout's directory name plus a hash of its real path.
+
+    The same from any subdirectory or linked worktree; two repositories that share a
+    directory name differ by the hash.
+    """
+    root = get_project_root()
     digest = hashlib.sha256(str(root).encode()).hexdigest()[:8]
     return f"{root.name or 'office'}-{digest}"
 
@@ -181,7 +191,7 @@ def init_db(db_path: Path) -> None:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(turns)")}
         for col, decl in (
             ("thread", "TEXT"), ("model", "TEXT"), ("branch", "TEXT"),
-            ("kind", "TEXT NOT NULL DEFAULT 'work'"), ("refusal", "TEXT"),
+            ("kind", "TEXT NOT NULL DEFAULT 'work'"), ("refusal", "TEXT"), ("error", "TEXT"),
             ("input_tokens", "INTEGER"), ("output_tokens", "INTEGER"),
             ("cache_read_tokens", "INTEGER"), ("cache_write_tokens", "INTEGER"),
             ("cost", "REAL"),
@@ -293,7 +303,7 @@ def get_turn(db_path: Path, turn_id: str) -> dict | None:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT t.id, t.person_id, t.status, t.thread, t.model, t.branch, t.kind, p.role "
+            "SELECT t.id, t.person_id, t.status, t.thread, t.model, t.branch, t.kind, t.error, p.role "
             "FROM turns t JOIN people p ON t.person_id = p.id "
             "WHERE t.id = ?",
             (turn_id,),
@@ -331,9 +341,19 @@ def mark_turn_queued(db_path: Path, turn_id: str) -> None:
     _set_turn_status(db_path, turn_id, "queued")
 
 
-def mark_turn_failed(db_path: Path, turn_id: str) -> None:
-    """Mark a turn as failed and set ended_at."""
+def requeue_running_turns(db_path: Path) -> None:
+    """Queue again every turn left running by a Session that closed; their old tokens stay dead."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DELETE FROM tokens WHERE turn_id IN (SELECT id FROM turns WHERE status = 'running')")
+        conn.execute("UPDATE turns SET status = 'queued' WHERE status = 'running'")
+
+
+def mark_turn_failed(db_path: Path, turn_id: str, error: str | None = None) -> None:
+    """Mark a turn as failed and set ended_at, recording its error output when there is any."""
     _set_turn_status(db_path, turn_id, "failed")
+    if error:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("UPDATE turns SET error = ? WHERE id = ?", (error, turn_id))
 
 
 def refuse_turn(db_path: Path, turn_id: str, reason: str) -> None:

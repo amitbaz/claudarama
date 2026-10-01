@@ -86,6 +86,63 @@ def test_a_turn_can_neither_list_nor_answer_a_gate():
     assert result.passed, _why(result)
 
 
+# --- a worktree per ticket (issue #91) ---------------------------------------------
+
+M_GRANTED = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
+# The researcher opens a pull request from the ticket's branch, withdraws it, and submits a Diagnosis.
+# The CEO's DISCUSS then reviews the gates and wakes nobody on the ticket.
+WITHDRAWN_PR = [
+    {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #1"]},
+    {"run": ["gh", "pr", "close", "101"]},
+    {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
+]
+REVIEWED = "CEO answers DISCUSS\\nMandate 'M': PLANNING, waiting for the CEO\\nThe CEO's checkout is on main; worktrees: "
+
+
+def _on_ticket_1(*calls: dict) -> dict:
+    return {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": list(calls)}]}
+
+
+def test_a_closed_pull_request_takes_the_tickets_worktree_and_leaves_its_branch_for_the_next_turn():
+    commit = ["git", "-c", "user.name=Amy", "-c", "user.email=amy@example.com", "commit", "--allow-empty", "-m", "Faster checkout"]
+    steps = [
+        M_GRANTED,
+        _on_ticket_1({"run": commit}, *WITHDRAWN_PR),
+        {"type": "ceo_action", "input": "DISCUSS"},
+        {"type": "ceo_action", "input": "NO", "reason": "Look at the cart."},
+        _on_ticket_1({"run": ["git", "log", "-1", "--format=%s on %D"]}),
+    ]
+
+    result = _walk(steps, includes=[
+        REVIEWED + "none\\n",
+        "researcher runs git log -1 '--format=%s on %D' -> Faster checkout on HEAD -> ticket-1\\nresearcher's turn: done\\n"
+        "Mandate 'M': INVESTIGATING\\nThe CEO's checkout is on main; worktrees: ticket-1\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+def test_a_worktree_holding_uncommitted_work_stays_when_its_pull_request_closes():
+    steps = [M_GRANTED, _on_ticket_1({"run": ["touch", "uncommitted-work"]}, *WITHDRAWN_PR), {"type": "ceo_action", "input": "DISCUSS"}]
+
+    result = _walk(steps, includes=[REVIEWED + "ticket-1\\n"])
+
+    assert result.passed, _why(result)
+
+
+def test_a_ticket_named_like_a_path_gets_no_worktree_and_its_turn_fails_with_the_reason():
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "../../1"}}]}
+    turn = {"type": "mock_llm_turns", "turns": [{"ticket": "../../1", "calls": [{"run": ["pwd"]}]}]}
+
+    result = _walk([granted, turn], includes=[
+        "researcher's turn: failed: ValueError: ticket '\\.\\./\\.\\./1' cannot name a worktree\\n"
+        "Mandate 'M': INVESTIGATING\\nThe CEO's checkout is on main; worktrees: none\\n",
+    ])
+
+    assert result.passed, _why(result)
+    assert "researcher runs" not in result.turn_results[0].person_reply
+
+
 def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
     steps = [
         {"type": "ceo_action", "calls": [
@@ -102,7 +159,7 @@ def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
     result = _walk(steps, includes=[
         # Granting twice wakes the investigating Role once; a Role the office does not have is refused.
         "REFUSED: .*unknown Role 'detective'.*\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
-        "CEO's reason: The eval is too noisy to tell\\.\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n$",
+        "CEO's reason: The eval is too noisy to tell\\.\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\nThe CEO's checkout .*\\n$",
     ])
 
     assert result.passed, _why(result)

@@ -11,7 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from claudarama.db import create_turn_token, get_turn, init_db, mark_turn_running, queue_turn, resolve_token
+from claudarama.db import (
+    create_turn_token, get_turn, grant_mandate, init_db, mark_turn_running, queue_turn, register_ticket, resolve_token,
+)
 from claudarama.scenario.office import project as _project, script as _script, session as _session, until as _until
 from claudarama.supervisor import Supervisor, acquire_machine_slot, release_machine_slot
 
@@ -174,6 +176,48 @@ def test_closing_the_session_stops_a_running_turn_and_the_next_open_runs_it_agai
     release.touch()
     asyncio.run(open_until(lambda: _status(db, turn_id) == "done"))
     assert _count(launches) == 2
+
+
+def test_a_tickets_turn_interrupted_by_closing_the_session_resumes_in_the_same_worktree(tmp_path, bin_dir):
+    project, db = _project(tmp_path, "shop")
+    seen, release = tmp_path / "seen", tmp_path / "release"
+    seen.touch()
+    # Each launch leaves work of its own, and logs where it runs and the work it found there.
+    _script(bin_dir / "claude", f"found=$(ls)\ntouch half-done\necho $(pwd) $found >> {seen}\nwhile [ ! -e {release} ]; do sleep 0.1; done")
+    grant_mandate(db, "Speed up checkout")
+    register_ticket(db, "7", "Speed up checkout")
+    turn_id = queue_turn(db, "fullstack-engineer", thread="ticket:7")
+
+    async def open_until(condition):
+        async with _session(project, db, bin_dir):
+            await _until(condition)
+
+    asyncio.run(open_until(lambda: _count(seen) == 1))  # the Session closes mid-turn
+    release.touch()
+    asyncio.run(open_until(lambda: _status(db, turn_id) == "done"))
+
+    worktree = tmp_path / "shop-worktrees" / "ticket-7"
+    assert seen.read_text().splitlines() == [f"{worktree}", f"{worktree} half-done"]
+
+
+def test_a_pull_request_merged_outside_the_office_takes_its_tickets_worktree_at_the_next_open(tmp_path, bin_dir):
+    project, db = _project(tmp_path, "shop")
+    _script(bin_dir / "claude", "echo '{\"type\": \"result\"}'")
+    grant_mandate(db, "Speed up checkout")
+    register_ticket(db, "7", "Speed up checkout")
+    turn_id = queue_turn(db, "fullstack-engineer", thread="ticket:7")
+    worktree = tmp_path / "shop-worktrees" / "ticket-7"
+
+    async def open_until(condition):
+        async with _session(project, db, bin_dir):
+            await _until(condition)
+
+    asyncio.run(open_until(lambda: _status(db, turn_id) == "done"))
+    assert worktree.is_dir()
+
+    merged = """case "$*" in "pr list --head ticket-7 "*) echo '[{"state": "MERGED"}]';; *) exit 1;; esac"""
+    _script(bin_dir / "gh", merged)  # the CEO merged the ticket's pull request on GitHub
+    asyncio.run(open_until(lambda: not worktree.exists()))
 
 
 # --- how many turns run at once ---------------------------------------------------

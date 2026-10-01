@@ -11,6 +11,7 @@ from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.session import DB_ENV, TOKEN_ENV, advance_to_learning, open_gates, watch_gates
 from claudarama.supervisor import Supervisor, notify_ceo
+from claudarama.worktrees import remove_finished_worktrees
 
 from claudarama.db import (
     CAST,
@@ -114,11 +115,12 @@ def make_send_tool(db_path: Path) -> Callable:
 
 def create_mcp_server(
     db_path: Path | None = None, token: str | None = None, gh: Gh | None = None,
-    on_attach: Callable[[], None] | None = None,
+    on_attach: Callable[[], None] | None = None, project: Path | None = None,
 ) -> FastMCP:
     """The office server for one caller: every tool call is made as the holder of *token*.
 
-    With *gh*, grants and tickets mirror to GitHub. With *on_attach*, the server was started
+    With *gh*, grants and tickets mirror to GitHub. With *project* (the main checkout), an answer
+    at a gate removes the worktrees of the tickets whose pull requests are merged or closed. With *on_attach*, the server was started
     with no token (the plugin declares it for every session): it creates nothing and refuses
     every call until ``attach`` makes it the owner's, then calls *on_attach*.
     """
@@ -205,8 +207,10 @@ def create_mcp_server(
             raise ValueError(f"no open gate {gate!r}; the open gates are: {', '.join(waiting) or 'none'}")
         if answer != "DISCUSS":
             waiting[gate]["resolve"](answer == "YES", reason)
-            if gate.startswith("pr:"):
-                advance_to_learning(db_path, gh)  # a merged PR may have closed a mandate's last ticket
+        if project:  # whenever the CEO is at a gate: of a ticket merged or closed here, or withdrawn by its author
+            remove_finished_worktrees(project, db_path, gh)
+        if answer != "DISCUSS" and gate.startswith("pr:"):
+            advance_to_learning(db_path, gh)  # a merged PR may have closed a mandate's last ticket
         return {"ok": True, "gate": gate, "answer": answer, "open": answer == "DISCUSS"}
 
     @server.tool(name="submit_diagnosis")
@@ -276,8 +280,9 @@ def main() -> None:
     db_path = Path(db) if db else get_office_db_path()
     token = os.environ.get(TOKEN_ENV)
 
-    def reconcile() -> None:  # catches hand-moved issues
+    def reconcile() -> None:  # catches hand-moved issues, and pull requests merged or closed outside the office
         while True:
+            remove_finished_worktrees(get_project_root(), db_path, run_gh)  # at open, then every minute
             time.sleep(60)
             sync(db_path, run_gh)
 
@@ -296,7 +301,9 @@ def main() -> None:
         threading.Thread(target=office.run, daemon=True).start()
 
     # Handed no token, this is the server the plugin declares: it waits for /claudarama:open.
-    server = create_mcp_server(db_path=db_path, token=token, gh=run_gh, on_attach=None if token else run_office)
+    server = create_mcp_server(
+        db_path=db_path, token=token, gh=run_gh, on_attach=None if token else run_office, project=get_project_root(),
+    )
     identity = resolve_token(db_path, token)
     if identity and identity.is_owner:  # a turn's server neither reconciles nor runs turns
         run_office()

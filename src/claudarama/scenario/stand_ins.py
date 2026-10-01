@@ -90,14 +90,18 @@ def gh(state: Path, argv: list[str]) -> None:
         case ["pr", "create", *flags]:
             given = dict(zip(flags[::2], flags[1::2]))
             number = FIRST_PULL_REQUEST + len(hub["prs"])
+            branch = subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True).stdout.strip()
             hub["prs"].append({
                 "number": number, "title": given["--title"], "state": "OPEN",
-                "headRefOid": f"commit-{number}",  # the stand-in knows no git; a scripted Ship-check names this
+                "headRefName": branch,  # as gh has it: the branch checked out where the turn runs
+                "headRefOid": f"commit-{number}",  # no commit is pushed; a scripted Ship-check names this
                 "closingIssuesReferences": [{"number": int(n)} for n in re.findall(r"#(\d+)", given.get("--body", ""))],
             })
             print(f"https://github.com/office/project/pull/{number}")
         case ["pr", "list", "--state", "open", *_]:
             print(json.dumps([p for p in hub["prs"] if p["state"] == "OPEN"]))
+        case ["pr", "list", "--head", branch, "--state", "all", *_]:
+            print(json.dumps([p for p in hub["prs"] if p["headRefName"] == branch]))
         case ["pr", "merge", number, "--merge", "--match-head-commit", head]:
             if pr(number)["headRefOid"] != head:
                 sys.exit(f"head commit of #{number} is not {head}")

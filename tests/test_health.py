@@ -102,6 +102,17 @@ def test_stall_escalates_to_new_branch_and_queues_higher_model(tmp_path):
     assert new["branch"] in branches
 
 
+def test_a_tickets_stalled_turn_escalates_on_the_tickets_one_branch(tmp_path):
+    db, pack, out, first = _setup(tmp_path, "escalate_stuck_turns: true\nescalation_model: opus\n")
+    tid = queue_turn(db, "fullstack-engineer", thread="ticket:7", kind="ritual")
+    mock = _script(tmp_path, "exec sleep 30")
+    Supervisor(db, pack, out, claude_binary=str(mock), stall_timeout=0.5).run_one_turn(tid)
+    new = next(r for r in _rows(db, "SELECT * FROM turns") if r["id"] not in (first, tid))
+    assert (new["status"], new["model"], new["thread"], new["branch"]) == ("queued", "opus", "ticket:7", None)
+    branches = subprocess.run(["git", "-C", str(pack.parent), "branch"], capture_output=True, text=True).stdout
+    assert "ticket-7" in branches and "escalated" not in branches
+
+
 def test_escalated_turn_that_stalls_does_not_escalate_again(tmp_path):
     db, pack, out, _ = _setup(tmp_path, "escalate_stuck_turns: true\nescalation_model: opus\n")
     tid = queue_turn(db, "fullstack-engineer", model="opus", branch="escalated/x", kind="ritual")

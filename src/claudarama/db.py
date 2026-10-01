@@ -300,6 +300,14 @@ def get_queued_turns(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def ticket_has_turn(db_path: Path, ticket: str) -> bool:
+    """True while a turn for *ticket* is queued or running."""
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT 1 FROM turns WHERE thread = ? AND status IN ('queued', 'running')", (f"ticket:{ticket}",)
+        ).fetchone() is not None
+
+
 def get_turn(db_path: Path, turn_id: str) -> dict | None:
     """Return a turn row as a dict, or None if not found.
 

@@ -71,6 +71,64 @@ def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
     assert result.passed, _why(result)
 
 
+# --- a worktree per ticket (issue #91) ---------------------------------------------
+
+M_GRANTED = {"type": "ceo_action", "calls": [
+    {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "M"}},
+]}
+OPEN_PR = {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #1"]}
+DECLINED = "CEO answers NO\\nMandate 'M': INVESTIGATING\\nThe CEO's checkout is on main; worktrees: "
+
+
+def _on_ticket_1(*calls: dict) -> dict:
+    return {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": list(calls)}]}
+
+
+def test_a_declined_pull_request_takes_the_tickets_worktree_and_leaves_its_branch_for_the_next_turn():
+    commit = ["git", "-c", "user.name=Amy", "-c", "user.email=amy@example.com", "commit", "--allow-empty", "-m", "Faster checkout"]
+    steps = [
+        M_GRANTED,
+        _on_ticket_1({"run": commit}, OPEN_PR),
+        {"type": "ceo_action", "input": "NO"},
+        _on_ticket_1({"run": ["git", "log", "-1", "--format=%s on %D"]}),
+    ]
+
+    result = _walk(steps, includes=[
+        DECLINED + "none\\n",
+        "researcher runs git log -1 '--format=%s on %D' -> Faster checkout on HEAD -> ticket-1\\nresearcher's turn: done\\n"
+        "Mandate 'M': INVESTIGATING\\nThe CEO's checkout is on main; worktrees: ticket-1\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
+@pytest.mark.parametrize("still_in_use", [
+    {"run": ["touch", "uncommitted-work"]},
+    {"tool": "send", "args": {"receiver_id": "pm", "msg_type": "QUESTION", "body": "Which page?", "ticket": "1"}},  # queues a turn
+])
+def test_a_worktree_still_in_use_stays_when_its_pull_request_is_declined(still_in_use):
+    steps = [M_GRANTED, _on_ticket_1(OPEN_PR, still_in_use), {"type": "ceo_action", "input": "NO"}]
+
+    result = _walk(steps, includes=[DECLINED + "ticket-1\\n"])
+
+    assert result.passed, _why(result)
+
+
+def test_a_ticket_named_like_a_path_gets_no_worktree_and_its_turn_fails_with_the_reason():
+    granted = {"type": "ceo_action", "calls": [
+        {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "../../1", "mandate": "M"}},
+    ]}
+    turn = {"type": "mock_llm_turns", "turns": [{"ticket": "../../1", "calls": [{"run": ["pwd"]}]}]}
+
+    result = _walk([granted, turn], includes=[
+        "researcher's turn: failed: ValueError: ticket '\\.\\./\\.\\./1' cannot name a worktree\\n"
+        "Mandate 'M': INVESTIGATING\\nThe CEO's checkout is on main; worktrees: none\\n",
+    ])
+
+    assert result.passed, _why(result)
+    assert "researcher runs" not in result.turn_results[0].person_reply
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),

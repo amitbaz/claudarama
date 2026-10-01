@@ -23,6 +23,7 @@ from claudarama.db import (
 )
 from claudarama.mirror import Gh, run_gh
 from claudarama.scaffold import PACK_DIR_NAME
+from claudarama.worktrees import remove_finished_worktrees
 
 
 def _run_claude(cmd: list[str], claude_binary: str) -> int:
@@ -139,11 +140,12 @@ def review_lesson_gates(db_path: Path, ask=input) -> bool:
     )
 
 
-def review_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> None:
-    """Ask the CEO about every gate that is waiting, in the order of the loop."""
+def review_gates(db_path: Path, project: Path, gh: Gh = run_gh, ask=input) -> None:
+    """Ask the CEO about every gate that is waiting, in the order of the loop. *project* is the main checkout."""
     review_diagnosis_gates(db_path, ask)
     review_epic_gates(db_path, ask)
     review_pr_gates(db_path, gh, ask)
+    remove_finished_worktrees(project, db_path, gh)  # of the tickets just merged or closed
     advance_to_learning(db_path, gh)
     review_lesson_gates(db_path, ask)
 
@@ -167,6 +169,6 @@ def open_ceo_session(
         print(f"{brief}\n\nAttach code: {create_attach_code(db_path)}")
         return 0
     if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
-        review_gates(db_path)
+        review_gates(db_path, get_project_root())
     config = mcp_config(db_path, get_owner_token(db_path))
     return _run_claude([claude_binary, "--mcp-config", config, "--append-system-prompt", brief], claude_binary)

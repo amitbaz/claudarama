@@ -22,6 +22,7 @@ from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.scenario.stand_ins import RESULT, call
 from claudarama.scenario.validator import CeoActionStep, Scenario
 from claudarama.session import mcp_config, review_gates
+from claudarama.worktrees import worktrees_root
 
 STAND_INS = Path(__file__).with_name("stand_ins.py")
 
@@ -43,7 +44,12 @@ def project(root: Path, name: str, org_yaml: str = "") -> tuple[Path, Path]:
     project = root / name
     (project / PACK_DIR_NAME).mkdir(parents=True)
     (project / PACK_DIR_NAME / "org.yaml").write_text(org_yaml)
-    subprocess.run(["git", "init", "--quiet", str(project)], check=True)
+    subprocess.run(["git", "init", "--quiet", "--initial-branch=main", str(project)], check=True)
+    subprocess.run(  # a ticket's worktree starts from a commit
+        ["git", "-C", str(project), "-c", "user.name=CEO", "-c", "user.email=ceo@example.com",
+         "commit", "--quiet", "--allow-empty", "-m", "Start"],
+        check=True,
+    )
     db = root / "home" / ".claudarama" / name / "office.db"
     init_db(db)
     return project, db
@@ -105,7 +111,7 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
 
         shown = io.StringIO()
         with contextlib.redirect_stdout(shown):
-            review_gates(db, gh, ask)
+            review_gates(db, office, gh, ask)
         seen.extend(shown.getvalue().splitlines())
         if not replies:
             raise Stuck(f"the CEO answered {reply}, but no gate was waiting")
@@ -141,6 +147,9 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             f"Mandate {m['id']!r}: {m['status']}" + (", waiting for the CEO" if m["blocked_on_ceo"] else "")
             for m in mandate_states(db)
         )
+        on = subprocess.run(["git", "-C", str(office), "branch", "--show-current"], capture_output=True, text=True)
+        worktrees = sorted(path.name for path in worktrees_root(office).glob("*"))
+        seen.append(f"The CEO's checkout is on {on.stdout.strip()}; worktrees: {', '.join(worktrees) or 'none'}")
 
     async with session(office, db, bin_dir) as ceo:
         try:

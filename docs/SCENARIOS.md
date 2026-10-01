@@ -76,7 +76,7 @@ Steps run in order.
 
 - **`ceo_action` with `calls`**: the CEO's Session calls the office's tools with the owner token. Each call names a `tool` and its `args`.
 - **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, through the same code that asks at `claudarama open`. An answer with no gate waiting fails the scenario.
-- **`mock_llm_turns`**: each entry of `turns` is one scripted turn, with the `role` that runs it, the `ticket` whose thread wakes it, and its `calls`. A call is one of the office's tools (`tool`, `args`) or a command the turn runs in the project (`run`). The turns of one step run side by side; the step ends when each has ended.
+- **`mock_llm_turns`**: each entry of `turns` is one scripted turn, with the `role` that runs it, the `ticket` whose thread wakes it, and its `calls`. A call is one of the office's tools (`tool`, `args`) or a command the turn runs where it works, which is its ticket's worktree (`run`). The turns of one step run side by side; the step ends when each has ended.
 
 The office shows one line per event, and `checks` match against these lines:
 
@@ -94,9 +94,10 @@ Diagnosis gate: mandate '<mandate>', diagnosis at <path>
 CEO answers YES
 Mandate '<mandate>': <STATUS>
 Mandate '<mandate>': <STATUS>, waiting for the CEO
+The CEO's checkout is on <branch>; worktrees: <ticket-1, ticket-2, or none>
 ```
 
-Every Mandate's line is shown again after each step, so a check can name the step and the state it leaves: `"CEO answers NO\\nMandate 'Speed up checkout': INVESTIGATING"`.
+Every Mandate's line is shown again after each step, so a check can name the step and the state it leaves: `"CEO answers NO\\nMandate 'Speed up checkout': INVESTIGATING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
 
 `scenarios/loop.json` walks one Mandate through every state from its grant to CLOSED. A change to how the loop moves adds its scripted turns, CEO answers and checks there.
 

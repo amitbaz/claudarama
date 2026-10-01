@@ -1,5 +1,6 @@
 """Grants on mandates (issue #35), through the MCP tools and supervisor seams."""
 import sqlite3
+import subprocess
 
 import pytest
 
@@ -36,7 +37,14 @@ def _turn_token(db):
 def _run(db, tmp_path, turn_id):
     (tmp_path / "claude").write_text("#!/bin/sh\necho ok\n")
     (tmp_path / "claude").chmod(0o755)
-    Supervisor(db, tmp_path / ".claudarama", tmp_path, claude_binary=str(tmp_path / "claude")).run_one_turn(turn_id)
+    project = tmp_path / "project"  # a repository: a ticket's turn runs in a worktree of it
+    if not project.exists():
+        subprocess.run(["git", "init", "-q", str(project)], check=True)
+        subprocess.run(
+            ["git", "-C", str(project), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"],
+            check=True,
+        )
+    Supervisor(db, project / ".claudarama", tmp_path, claude_binary=str(tmp_path / "claude")).run_one_turn(turn_id)
     with sqlite3.connect(db) as conn:
         return conn.execute("SELECT status, refusal FROM turns WHERE id = ?", (turn_id,)).fetchone()
 

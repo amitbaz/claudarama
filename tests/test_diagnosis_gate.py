@@ -5,7 +5,7 @@ import pytest
 
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
-    get_owner_token, get_queued_turns, grant_mandate, init_db, queue_turn, register_ticket,
+    get_owner_token, get_queued_turns, grant_mandate, init_db, queue_turn, record_challenge, register_ticket,
 )
 from claudarama.session import review_diagnosis_gates
 
@@ -20,9 +20,10 @@ def db(tmp_path):
 
 
 def _submit(db):
+    """Submit the Diagnosis and record the Challenge that opens its gate."""
     server = create_mcp_server(db_path=db, token=get_owner_token(db))
-    return server._tool_manager.get_tool("submit_diagnosis").fn(
-        mandate="M1", diagnosis_path="d.md")
+    server._tool_manager.get_tool("submit_diagnosis").fn(mandate="M1", diagnosis_path="d.md")
+    record_challenge(db, "M1", "engineering-lead", "STANDS", "Reproduced.", "the check, three times")
 
 
 def _state(db):
@@ -55,3 +56,24 @@ def test_no_returns_to_investigating_and_discuss_stays_paused(db):
     answers = iter(["maybe", "no", "", "The cart is slow."])  # a NO is asked for its reason until it has one
     review_diagnosis_gates(db, ask=lambda _: next(answers))
     assert _state(db)[:2] == ("INVESTIGATING", 0)
+
+
+def test_a_challenge_needs_a_submitted_diagnosis_a_verdict_its_reasons_and_what_was_run(db):
+    def challenge(verdict="STANDS", reasons="Reproduced.", ran="the check, three times"):
+        record_challenge(db, "M1", "engineering-lead", verdict, reasons, ran)
+
+    with pytest.raises(ValueError, match="no Diagnosis waiting for a Challenge"):
+        challenge()
+    create_mcp_server(db_path=db, token=get_owner_token(db))._tool_manager.get_tool("submit_diagnosis").fn(
+        mandate="M1", diagnosis_path="d.md")
+    with pytest.raises(ValueError, match="STANDS or DISPUTED"):
+        challenge(verdict="SHIP")
+    with pytest.raises(ValueError, match="its reasons and what the challenger ran"):
+        challenge(reasons=" ")
+    with pytest.raises(ValueError, match="its reasons and what the challenger ran"):
+        challenge(ran="")
+    assert _state(db)[:2] == ("INVESTIGATING", 0)  # nothing refused opened the gate
+    challenge()
+    assert _state(db)[:2] == ("PLANNING", 1)
+    with pytest.raises(ValueError, match="no Diagnosis waiting for a Challenge"):
+        challenge()  # one Challenge per submission

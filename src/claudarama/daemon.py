@@ -22,6 +22,7 @@ from claudarama.db import (
     init_db,
     mark_turn_done,
     queue_turn,
+    record_challenge,
     redeem_attach_code,
     register_ticket,
     resolve_token,
@@ -174,21 +175,34 @@ def create_mcp_server(
         return {"ok": True}
 
     @server.tool()
-    def grant(mandate: str, ticket: str, investigator: str = "researcher") -> dict:
-        """Grant a mandate, naming its investigation ticket and its investigating Role, whose turn
-        on that ticket is queued. Owner token only."""
+    def grant(
+        mandate: str, ticket: str, investigator: str = "researcher", challenger: str = "engineering-lead"
+    ) -> dict:
+        """Grant a mandate, naming its investigation ticket, its investigating Role, whose turn on
+        that ticket is queued, and its challenging Role, a different Role that will try to refute
+        the Diagnosis before the CEO sees it. Owner token only."""
         authenticate(db_path, token, owner_only=True)
-        grant_mandate(db_path, mandate, ticket, investigator)
+        grant_mandate(db_path, mandate, ticket, investigator, challenger)
         if gh:
             sync(db_path, gh)
-        return {"ok": True, "mandate": mandate, "ticket": ticket, "investigator": investigator}
+        return {"ok": True, "mandate": mandate, "ticket": ticket, "investigator": investigator, "challenger": challenger}
 
     @server.tool(name="submit_diagnosis")
     def submit_diagnosis_tool(mandate: str, diagnosis_path: str) -> dict:
-        """Submit a Diagnosis: the mandate moves to PLANNING and pauses for the CEO."""
+        """Submit a Diagnosis: the mandate's challenging Role is woken to challenge it. It reaches
+        the CEO's Diagnosis gate only once the Challenge is recorded."""
         authenticate(db_path, token)
         submit_diagnosis(db_path, mandate, diagnosis_path)
-        return {"ok": True, "mandate": mandate, "status": "PLANNING", "blocked_on_ceo": True}
+        return {"ok": True, "mandate": mandate, "status": "INVESTIGATING", "blocked_on_ceo": False}
+
+    @server.tool(name="record_challenge")
+    def record_challenge_tool(mandate: str, verdict: str, reasons: str, ran: str) -> dict:
+        """Record your Challenge of a mandate's submitted Diagnosis: STANDS or DISPUTED, with your
+        reasons and what you ran. The challenger is taken from your token; only the mandate's
+        challenging Role is accepted."""
+        identity = authenticate(db_path, token)
+        record_challenge(db_path, mandate, identity.person_id or "ceo", verdict, reasons, ran)
+        return {"ok": True, "mandate": mandate, "verdict": verdict}
 
     @server.tool(name="submit_epic")
     def submit_epic_tool(mandate: str, tickets: list[str]) -> dict:

@@ -36,7 +36,7 @@ The pull request body has these sections:
 - **Judged cases**: when the Mandate has them, each of the CEO's cases and whether the finding agrees with it.
 - **Recommended strategy**: one recommendation, the level it acts on, and the result on the measure that would show it worked, stated against the spread.
 
-**The Challenge**, when you are the challenging Role: STANDS or DISPUTED, with reasons and with what you ran. Regenerate the evidence: run the measure yourself as many times as the author did, and check its judge against the judged cases. Do not reason from the author's output.
+**The Challenge**, when you are the challenging Role, recorded with `record_challenge`: STANDS or DISPUTED, with reasons and with what you ran. Regenerate the evidence: run the measure yourself as many times as the author did, and check its judge against the judged cases. Do not reason from the author's output.
 
 ## Who receives it
 

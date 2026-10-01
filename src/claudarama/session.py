@@ -19,6 +19,7 @@ from claudarama.db import (
     resolve_epic_gate,
     resolve_lesson_gate,
     ship_checked,
+    shown,
     start_learning,
     ticket_author,
     tickets_by_mandate,
@@ -68,11 +69,20 @@ def _review(gates: list[dict], describe, resolve, ask) -> bool:
     return discuss
 
 
+def describe_diagnosis_gate(gate: dict) -> str:
+    """What the CEO is shown at a Diagnosis gate: the Diagnosis, and beside it its Challenge."""
+    challenge = (  # a Diagnosis that was paused here before Challenges existed has none
+        f"Challenge by {shown(gate['challenger'])}: {gate['verdict']}: {gate['reasons']}\nWhat was run: {gate['ran']}"
+        if gate["verdict"] else "Challenge: none recorded"
+    )
+    return f"Diagnosis gate: mandate {gate['id']!r}, diagnosis at {gate['diagnosis_path']}\n{challenge}"
+
+
 def review_diagnosis_gates(db_path: Path, ask=input) -> bool:
-    """Ask about each paused Diagnosis. True when any is left for discussion."""
+    """Ask about each paused Diagnosis, shown with its Challenge. True when any is left for discussion."""
     return _review(
         diagnosis_gates(db_path),
-        lambda g: f"Diagnosis gate: mandate {g['id']!r}, diagnosis at {g['diagnosis_path']}",
+        describe_diagnosis_gate,
         lambda mandate, ok, reason: resolve_diagnosis_gate(db_path, mandate, ok, reason),
         ask,
     )

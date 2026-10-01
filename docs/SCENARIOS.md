@@ -63,11 +63,17 @@ With `steps`, the reply the checks read is what a real office showed while the s
         {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}}
       ]}
     ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "STANDS", "reasons": "Ten runs gave the same spread.", "ran": "the page timer, ten times"}}
+      ]}
+    ]},
     {"type": "ceo_action", "input": "NO", "reason": "The cart is slow, not the payment page."}
   ],
   "checks": {
     "includes": [
       "CEO calls grant .*\\nresearcher is woken on ticket 1\\n",
+      "researcher's turn: done\\nengineering-lead is woken on ticket 1\\n",
       "CEO's reason: The cart is slow, not the payment page\\.\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING"
     ]
   }
@@ -96,6 +102,8 @@ CEO calls <tool> <args> -> <answer>
 <role>'s turn: refused: <why the office did not start it>
 <role>'s turn: failed: <the error>
 Diagnosis gate: mandate '<mandate>', diagnosis at <path>
+Challenge by <role> (<name>): <STANDS or DISPUTED>: <the reasons>
+What was run: <what the challenger ran>
 CEO answers YES
 CEO answers NO
 CEO's reason: <the reason>

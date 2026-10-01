@@ -79,17 +79,47 @@ def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
         {"type": "mock_llm_turns", "turns": [{"role": "eval-engineer", "ticket": "1", "calls": [
             {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
         ]}]},
+        {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [
+            {"tool": "record_challenge", "args": {
+                "mandate": "M", "verdict": "STANDS", "reasons": "Five runs gave the same spread.", "ran": "the eval, five times"}},
+        ]}]},
         {"type": "ceo_action", "input": "NO", "reason": "The eval is too noisy to tell."},
     ]
 
     result = _walk(steps, includes=[
         # Granting twice wakes the investigating Role once; a Role the office does not have is refused.
         "REFUSED: .*unknown Role 'detective'.*\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
+        # A submitted Diagnosis wakes the challenging Role; the gate opens once the Challenge is recorded.
+        "eval-engineer's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
+        "engineering-lead calls record_challenge .* -> \\{\"ok\": true.*\\n"
+        "engineering-lead's turn: done\\nMandate 'M': PLANNING, waiting for the CEO\\n",
         "CEO's reason: The eval is too noisy to tell\\.\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n$",
     ])
 
     assert result.passed, _why(result)
     assert "Mandate 'N'" not in result.turn_results[0].person_reply
+
+
+def test_the_grant_names_a_challenging_role_that_is_not_the_investigating_role():
+    def grant(mandate, ticket, **roles):
+        return {"tool": "grant", "args": {"mandate": mandate, "ticket": ticket, **roles}}
+
+    result = _walk([{"type": "ceo_action", "calls": [
+        grant("M", "1", investigator="eval-engineer", challenger="eval-engineer"),
+        grant("M", "1", investigator="engineering-lead"),  # the default challenger is the engineering-lead
+        grant("M", "1", challenger="detective"),
+        grant("M", "1", investigator="eval-engineer", challenger="researcher"),
+        grant("N", "2"),
+    ]}], includes=[
+        "REFUSED: .*challenging Role must differ from the investigating Role.*\\n"
+        "CEO calls .* -> REFUSED: .*challenging Role must differ.*\\n"
+        "CEO calls .* -> REFUSED: .*unknown Role 'detective'.*\\n"
+        "CEO calls .* -> \\{\"ok\": true.*\"investigator\": \"eval-engineer\", \"challenger\": \"researcher\"\\}\\n"
+        "CEO calls .* -> \\{\"ok\": true.*\"investigator\": \"researcher\", \"challenger\": \"engineering-lead\"\\}\\n"
+        "eval-engineer is woken on ticket 1\\nresearcher is woken on ticket 2\\n",
+    ])
+
+    assert result.passed, _why(result)
 
 
 @pytest.mark.parametrize("step, problem", [

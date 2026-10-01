@@ -45,7 +45,7 @@ A short note (at most 500 characters) a person leaves at the end of a turn: the 
 A body of work the office takes on for the CEO, which breaks into an Epic of tickets. The office works on it only once the CEO grants it.
 
 **Grant**:
-The CEO's approval of one mandate, naming its investigation ticket and its investigating Role (researcher unless another is named), who is woken on that ticket. Only turns for tickets under a granted mandate (replies included), rituals and the Assistant may start; other work needs a ticket first.
+The CEO's approval of one mandate, naming its investigation ticket, its investigating Role (researcher unless another is named), who is woken on that ticket, and its challenging Role (engineering-lead unless another is named, and never the investigating Role). Only turns for tickets under a granted mandate (replies included), rituals and the Assistant may start; other work needs a ticket first.
 
 **Office day**:
 A day on which the CEO opened the office. Rituals count office days, never calendar weeks.
@@ -54,10 +54,10 @@ A day on which the CEO opened the office. Rituals count office days, never calen
 An action only the CEO may take or approve. A NO at any Gate takes a one-line reason, which joins the ticket's thread and wakes whoever produced the work.
 
 **Diagnosis**:
-The investigating Role's written finding on a granted mandate: the measure it relies on and how much that measure varies, the rival explanations and what was run to check each, and the recommended strategy. Submitting it moves the mandate from INVESTIGATING to PLANNING; it reaches the Diagnosis gate only after a Challenge.
+The investigating Role's written finding on a granted mandate: the measure it relies on and how much that measure varies, the rival explanations and what was run to check each, and the recommended strategy. Submitting it wakes the challenging Role and leaves the mandate INVESTIGATING; it reaches the Diagnosis gate, and the mandate moves to PLANNING, only after a Challenge.
 
 **Challenge**:
-A second Role's attempt to refute a Diagnosis before the CEO sees it, recorded as STANDS or DISPUTED with reasons and with what was run. The challenger regenerates the evidence rather than trusting the author's. A DISPUTED Diagnosis returns to its author once.
+A second Role's attempt to refute a Diagnosis before the CEO sees it, recorded with `record_challenge` as STANDS or DISPUTED with reasons and with what was run, and accepted only from the mandate's challenging Role. The challenger regenerates the evidence rather than trusting the author's. A mandate's first DISPUTED returns the Diagnosis to its author with the reasons; every later Challenge opens the Diagnosis gate with its verdict either way.
 _Avoid_: Review, critique
 
 **Diagnosis gate**:

@@ -1,6 +1,7 @@
 """The PR gate and the Lesson gate: EXECUTING to LEARNING to CLOSED (issue #73)."""
 import json
 import sqlite3
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -78,7 +79,16 @@ def test_yes_is_blocked_without_a_ship_verdict_for_the_head_commit(db, capsys, s
     gh = FakeGh()
     review_pr_gates(db, gh, ask=lambda _: "yes")
     assert gh.mutations() == []
-    assert "no SHIP ship-check" in capsys.readouterr().out
+    assert "no SHIP verdict" in capsys.readouterr().out
+
+
+def test_gh_failure_skips_the_gates_instead_of_crashing(db, capsys):
+    def broken(args):
+        raise subprocess.CalledProcessError(1, "gh")
+    assert not review_pr_gates(db, broken, ask=lambda _: "yes")
+    advance_to_learning(db, broken)
+    assert _state(db) == ("EXECUTING", 0)
+    assert capsys.readouterr().err.count("gh failed") == 2
 
 
 def test_no_closes_the_pr_and_discuss_leaves_it_alone(db):

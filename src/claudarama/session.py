@@ -84,20 +84,24 @@ def _open_prs(db_path: Path, gh: Gh) -> list[dict]:
 
 
 def review_pr_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> bool:
-    """Ask about each open PR. YES merges, but only with a SHIP ship-check on the head commit;
+    """Ask about each open PR. YES merges, but only with a SHIP verdict on the head commit;
     NO closes it. True when any is left for discussion."""
-    prs = {pr["id"]: pr for pr in _open_prs(db_path, gh)}
+    try:
+        prs = {pr["id"]: pr for pr in _open_prs(db_path, gh)}
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"PR gate skipped: gh failed ({e}).", file=sys.stderr)
+        return False
 
     def describe(g: dict) -> str:
         check = "SHIP" if ship_checked(db_path, g["id"], g["head"]) else "MISSING"
-        return f"PR gate: #{g['id']} {g['title']!r} (mandates {', '.join(g['mandates'])}), ship-check: {check}"
+        return f"PR gate: #{g['id']} {g['title']!r} (mandates {', '.join(g['mandates'])}), Ship-check: {check}"
 
     def resolve(number: int, ok: bool) -> None:
         pr = prs[number]
         if not ok:
             gh(["pr", "close", str(number), "--comment", "Declined by the CEO at the PR gate."])
         elif not ship_checked(db_path, number, pr["head"]):
-            print(f"Blocked: no SHIP ship-check for head commit {pr['head'][:8]} of PR #{number}; not merged.")
+            print(f"Blocked: no SHIP verdict for head commit {pr['head'][:8]} of PR #{number}; not merged.")
         else:
             gh(["pr", "merge", str(number), "--merge", "--match-head-commit", pr["head"]])
 
@@ -107,7 +111,12 @@ def review_pr_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> bool:
 def advance_to_learning(db_path: Path, gh: Gh = run_gh) -> None:
     """Move each unblocked EXECUTING mandate whose tickets are all closed on GitHub to LEARNING."""
     for mandate, tickets in tickets_by_mandate(db_path, "EXECUTING").items():
-        if all(json.loads(gh(["issue", "view", t, "--json", "state"]))["state"] == "CLOSED" for t in tickets):
+        try:
+            closed = all(json.loads(gh(["issue", "view", t, "--json", "state"]))["state"] == "CLOSED" for t in tickets)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"Cannot check tickets of {mandate!r}: gh failed ({e}).", file=sys.stderr)
+            continue
+        if closed:
             start_learning(db_path, mandate)
 
 

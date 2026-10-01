@@ -18,6 +18,7 @@ from claudarama.db import (
     get_owner_token,
     get_project_root,
     init_db,
+    investigation_tickets,
     is_new_head,
     lesson_gates,
     mandates_of_tickets,
@@ -35,6 +36,7 @@ from claudarama.db import (
     tickets_by_mandate,
     wake,
 )
+from claudarama.documents import branch, open_pull_request
 from claudarama.mirror import Gh, run_gh
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.worktrees import remove_finished_worktrees
@@ -94,12 +96,29 @@ def _describe_diagnosis(gate: dict) -> str:
     return f"Diagnosis gate: mandate {gate['id']!r}, diagnosis at {gate['diagnosis_path']}\n{challenge}"
 
 
-def _diagnosis(db_path: Path):
-    return (
-        diagnosis_gates(db_path),
-        _describe_diagnosis,
-        lambda mandate, ok, reason: resolve_diagnosis_gate(db_path, mandate, ok, reason),
-    )
+def _merge_document(db_path: Path, gh: Gh | None, mandate: str, kind: str) -> str | None:
+    """Merge the pull request that holds *mandate*'s Diagnosis or Retro, the open one from its
+    investigation ticket's branch, and name that ticket. No Ship-check is asked for: the CEO read
+    the document at this gate. Nothing to merge for a mandate granted with no investigation ticket."""
+    ticket = investigation_tickets(db_path).get(mandate)
+    if not (gh and ticket):
+        return None
+    # ponytail: the pull request is taken on its branch's word, so anything else committed on the
+    # investigation ticket's branch merges with the document. Refuse one that changes other files
+    # (`gh pr view --json files`) if a Role ever puts code there.
+    pr = open_pull_request(gh, ticket, kind)
+    gh(["pr", "merge", str(pr["number"]), "--merge", "--match-head-commit", pr["headRefOid"]])
+    return ticket
+
+
+def _diagnosis(db_path: Path, gh: Gh | None = None):
+    """With *gh*, YES merges the Diagnosis and closes the investigation ticket before the pm is woken."""
+    def resolve(mandate: str, ok: bool, reason: str) -> None:
+        if ok and (ticket := _merge_document(db_path, gh, mandate, "Diagnosis")):
+            gh(["issue", "close", ticket])
+        resolve_diagnosis_gate(db_path, mandate, ok, reason)
+
+    return diagnosis_gates(db_path), _describe_diagnosis, resolve
 
 
 def _epic(db_path: Path):
@@ -111,18 +130,24 @@ def _epic(db_path: Path):
     )
 
 
-def _lesson(db_path: Path):
+def _lesson(db_path: Path, gh: Gh | None = None):
+    """With *gh*, YES merges the Retro before the mandate is finally CLOSED."""
+    def resolve(mandate: str, ok: bool, reason: str) -> None:
+        if ok:
+            _merge_document(db_path, gh, mandate, "Retro")
+        resolve_lesson_gate(db_path, mandate, ok, reason)
+
     return (
         lesson_gates(db_path),
         lambda g: f"Lesson gate: mandate {g['id']!r}, Retro at {g['lesson_path']}, Lessons:\n"
         + ("\n".join(f"  - {shown(lesson['scope'])}: {lesson['text']}" for lesson in g["lessons"]) or "  none"),
-        lambda mandate, ok, reason: resolve_lesson_gate(db_path, mandate, ok, reason),
+        resolve,
     )
 
 
-def review_diagnosis_gates(db_path: Path, ask=input) -> bool:
+def review_diagnosis_gates(db_path: Path, ask=input, gh: Gh | None = None) -> bool:
     """Ask about each paused Diagnosis, shown with its Challenge. True when any is left for discussion."""
-    return _review(*_diagnosis(db_path), ask)
+    return _review(*_diagnosis(db_path, gh), ask)
 
 
 def review_epic_gates(db_path: Path, ask=input) -> bool:
@@ -131,10 +156,17 @@ def review_epic_gates(db_path: Path, ask=input) -> bool:
 
 
 def _open_prs(db_path: Path, gh: Gh) -> list[dict]:
-    """Open PRs that close office tickets, each with the mandates they serve."""
-    prs = json.loads(gh(["pr", "list", "--state", "open", "--json", "number,title,headRefOid,closingIssuesReferences"]))
+    """Open PRs that close office tickets, each with the mandates they serve. Not the pull request
+    of a Diagnosis or a Retro, which comes from an investigation ticket's branch: the CEO's YES at
+    the Diagnosis gate or the Lesson gate merges it, with no Ship-check."""
+    prs = json.loads(gh(
+        ["pr", "list", "--state", "open", "--json", "number,title,headRefOid,headRefName,closingIssuesReferences"]
+    ))
+    documents = {branch(ticket) for ticket in investigation_tickets(db_path).values()}
     out = []
     for pr in prs:
+        if pr.get("headRefName") in documents:
+            continue
         tickets = [str(i["number"]) for i in pr["closingIssuesReferences"]]
         mandates = mandates_of_tickets(db_path, tickets)
         if mandates:
@@ -182,9 +214,9 @@ def open_gates(db_path: Path, gh: Gh | None = run_gh) -> list[dict]:
     """Every gate waiting for the CEO, in the order of the loop: its name (``gate``), what the CEO
     is shown (``shows``) and how a YES or NO resolves it (``resolve(approved, reason)``; a NO
     needs its one-line reason). No PR gates without *gh*."""
-    kinds = [("diagnosis", _diagnosis(db_path)), ("epic", _epic(db_path))]
+    kinds = [("diagnosis", _diagnosis(db_path, gh)), ("epic", _epic(db_path))]
     kinds += [("pr", _pr(db_path, gh))] if gh else []
-    kinds += [("lesson", _lesson(db_path))]
+    kinds += [("lesson", _lesson(db_path, gh))]
     return [
         {"gate": f"{kind}:{g['id']}", "shows": describe(g), "resolve": partial(resolve, g["id"])}
         for kind, (gates, describe, resolve) in kinds
@@ -250,19 +282,19 @@ def follow_github(db_path: Path, gh: Gh = run_gh) -> None:
     advance_to_learning(db_path, gh)
 
 
-def review_lesson_gates(db_path: Path, ask=input) -> bool:
+def review_lesson_gates(db_path: Path, ask=input, gh: Gh | None = None) -> bool:
     """Ask about each paused Lesson. True when any is left for discussion."""
-    return _review(*_lesson(db_path), ask)
+    return _review(*_lesson(db_path, gh), ask)
 
 
 def review_gates(db_path: Path, project: Path, gh: Gh = run_gh, ask=input) -> None:
     """Ask the CEO about every gate that is waiting, in the order of the loop. *project* is the main checkout."""
-    review_diagnosis_gates(db_path, ask)
+    review_diagnosis_gates(db_path, ask, gh)
     review_epic_gates(db_path, ask)
     review_pr_gates(db_path, gh, ask)
     remove_finished_worktrees(project, db_path, gh)  # of the tickets just merged or closed
     advance_to_learning(db_path, gh)
-    review_lesson_gates(db_path, ask)
+    review_lesson_gates(db_path, ask, gh)
 
 
 def open_ceo_session(

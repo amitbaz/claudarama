@@ -60,8 +60,9 @@ With `steps`, the reply the checks read is what a real office showed while the s
     ]},
     {"type": "mock_llm_turns", "turns": [
       {"role": "researcher", "ticket": "1", "calls": [
-        {"run": ["gh", "issue", "view", "1", "--json", "state"]},
-        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}}
+        {"run": ["sh", "-c", "mkdir -p .claudarama/company/diagnoses && printf '## Measure\\n## Rival explanations\\n## Recommended strategy\\n' > .claudarama/company/diagnoses/checkout.md && git add .claudarama && git -c user.name=Amy -c user.email=amy@example.com commit --quiet -m Diagnosis"]},
+        {"run": ["gh", "pr", "create", "--title", "Diagnosis: the slow checkout", "--body", "Closes #1"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": ".claudarama/company/diagnoses/checkout.md"}}
       ]}
     ]},
     {"type": "mock_llm_turns", "turns": [
@@ -112,6 +113,8 @@ CEO answers YES
 CEO answers YES -> REFUSED: <the server's reason>
 CEO answers NO
 CEO's reason: <the reason>
+Pull request #<number> is <merged or closed>
+Ticket <ticket> is closed
 Mandate '<mandate>': <STATUS>
 Mandate '<mandate>': <STATUS>, waiting for the CEO
 The CEO's checkout is on <branch>; worktrees: <ticket-1, ticket-2, or none>
@@ -127,6 +130,8 @@ FAIL from engineering-lead (<name>) to <the ticket's Role> on ticket <ticket>: S
 QUESTION from <role> (<name>) to <role> (<name>) on ticket <ticket>: <the question>
 BLOCKED from <role> (<name>) to <role or ceo> on ticket <ticket>: <what blocks the work>
 ```
+
+A Diagnosis or a Retro is submitted the way its author would: the scripted turn writes the file in its directory of the pack, commits it on the ticket's branch and opens a pull request before it calls `submit_diagnosis` or `submit_lessons`. Right after the CEO's answer come the pull requests and tickets that answer merged or closed on the stand-in GitHub.
 
 Every scripted turn reports the same usage: 100 tokens in, 20 out, $0.01. A blank line ends each Mandate's report, so a check can hold a line to its Mandate: `"--- Mandate 'Fix the search': .+ ---\\n(?:.+\\n)*FAIL from "`.
 

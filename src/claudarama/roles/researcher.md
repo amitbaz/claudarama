@@ -18,8 +18,9 @@ One Diagnosis, a file under the pack's `company/diagnoses/` directory, submitted
 2. Run the measure several times on the unchanged system and record every result.
 3. List the rival explanations and run something that checks each one.
 4. Converge on one recommendation.
+5. Commit the Diagnosis on the ticket's branch and open a pull request from that branch, then call `submit_diagnosis` with the file's path from the project's root. The office refuses a path outside the diagnoses directory, a file that is not committed, and a branch with no open pull request. The CEO's YES at the Diagnosis gate merges that pull request and closes the investigation ticket; it gets no Ship-check.
 
-The Diagnosis has these sections:
+The Diagnosis has these sections, each under a heading of its name; the office refuses a Diagnosis that lacks one:
 
 - **Measure**: the measure the finding relies on, the command that produces it, and how much it varies across repeated runs of the unchanged system: how many runs, each result, the spread. When the spread is too wide to judge a fix, say so here and make repairing the measure the recommendation.
 - **Rival explanations**: one entry for every level, namely the code, the prompts, the bars, the tests, the overall approach, and something missing. Each entry gives the explanation, what was run to check it, and what the output showed. An explanation is not ruled out without evidence; where nothing was run, write "not checked" and why.

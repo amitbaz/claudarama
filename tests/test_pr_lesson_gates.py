@@ -8,7 +8,7 @@ import pytest
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
     get_owner_token, get_queued_turns, grant_mandate, init_db, list_turns, queue_turn, record_verdict,
-    register_ticket, submit_diagnosis,
+    register_ticket, submit_diagnosis, submit_lessons,
 )
 from claudarama.session import advance_to_learning, follow_github, review_lesson_gates, review_pr_gates
 
@@ -184,7 +184,7 @@ def test_following_github_survives_a_gh_failure(db, capsys):
 def _submit_lessons(db, mandate="M1", token=None):
     server = create_mcp_server(db_path=db, token=token or get_owner_token(db))
     return server._tool_manager.get_tool("submit_lessons").fn(
-        mandate=mandate, lesson_path="docs/lessons/m1.md")
+        mandate=mandate, lesson_path=".claudarama/company/retros/m1.md")
 
 
 @pytest.fixture
@@ -197,7 +197,7 @@ def test_submit_lessons_closes_the_mandate_and_pauses_it_for_the_ceo(learning):
     assert _submit_lessons(learning)["status"] == "CLOSED"
     assert _state(learning) == ("CLOSED", 1)
     with sqlite3.connect(learning) as conn:
-        assert conn.execute("SELECT lesson_path FROM mandates").fetchone() == ("docs/lessons/m1.md",)
+        assert conn.execute("SELECT lesson_path FROM mandates").fetchone() == (".claudarama/company/retros/m1.md",)
     queue_turn(learning, "fullstack-engineer", thread="ticket:11")
     assert get_queued_turns(learning) == []
 
@@ -215,6 +215,24 @@ def test_lesson_yes_finalizes_the_mandate(learning):
     assert _state(learning) == ("CLOSED", 0)
     with pytest.raises(ValueError, match="not LEARNING"):
         _submit_lessons(learning)  # nothing reopens a closed mandate
+
+
+def test_from_the_terminal_a_retro_stays_off_the_pr_gate_and_is_merged_by_the_yes_at_the_lesson_gate(tmp_path):
+    db = tmp_path / "office.db"
+    init_db(db)
+    grant_mandate(db, "M", "1")  # the Retro is written on the branch of the investigation ticket
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE mandates SET status = 'LEARNING'")
+    submit_lessons(db, "M", ".claudarama/company/retros/m.md")
+    gh = FakeGh(prs=[{"number": 9, "title": "Retro", "state": "OPEN", "headRefOid": "r1", "headRefName": "ticket-1",
+                      "closingIssuesReferences": [{"number": 1}]}])
+    asked = []
+
+    review_pr_gates(db, gh, ask=lambda q: asked.append(q) or "yes")
+    assert asked == [] and gh.mutations() == []
+
+    review_lesson_gates(db, ask=lambda _: "yes", gh=gh)
+    assert gh.mutations() == [["pr", "merge", "9", "--merge", "--match-head-commit", "r1"]]  # with no Ship-check
 
 
 def test_lesson_discuss_stays_paused_and_no_sends_it_back_to_learning(learning):

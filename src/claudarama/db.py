@@ -1,3 +1,4 @@
+import hashlib
 import os
 import secrets
 import sqlite3
@@ -117,35 +118,25 @@ CREATE TABLE IF NOT EXISTS checkpoints (
 
 
 def get_project_name() -> str:
-    """Resolve project name from git or current directory."""
+    """Office identity: the main checkout's directory name plus a hash of its real path.
+
+    The same from any subdirectory or linked worktree; two repositories that share a
+    directory name differ by the hash.
+    """
+    root = Path.cwd().resolve()
     try:
         res = subprocess.run(
             ["git", "rev-parse", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            check=False,
+            capture_output=True, text=True, check=False,
         )
         if res.returncode == 0 and res.stdout.strip():
-            common_git_dir = Path(res.stdout.strip())
-            # For common dir .git inside project root, parent is project dir
-            if common_git_dir.name == ".git":
-                return common_git_dir.parent.name
-    except Exception:
+            # Relative to the working directory in a normal clone (".git"), so resolve it.
+            common = Path(res.stdout.strip()).resolve()
+            root = common.parent if common.name == ".git" else common
+    except OSError:
         pass
-
-    try:
-        res = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if res.returncode == 0 and res.stdout.strip():
-            return Path(res.stdout.strip()).name
-    except Exception:
-        pass
-
-    return Path.cwd().name
+    digest = hashlib.sha256(str(root).encode()).hexdigest()[:8]
+    return f"{root.name or 'office'}-{digest}"
 
 
 def get_office_db_path(project_name: str | None = None) -> Path:

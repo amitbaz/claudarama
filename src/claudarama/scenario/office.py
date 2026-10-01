@@ -1,6 +1,6 @@
 """A real office for a scenario's steps: a temporary git repository, the office server, its turn
-runner, its brief builder and its database. Only three edges are stand-ins (``stand_ins.py``):
-``claude`` for each turn, ``gh``, and the CEO's answers.
+runner, its brief builder and its database. Only four edges are stand-ins (``stand_ins.py``):
+``claude`` for each turn, ``gh``, the notification sink (``osascript``), and the CEO's answers.
 """
 import asyncio
 import contextlib
@@ -82,7 +82,7 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
     """Take each step in turn, adding what the office shows to *seen*. Returns why it stopped short, if it did."""
     office, db = project(root, "office")
     bin_dir, state = root / "bin", root / "stand-ins"
-    for program in ("claude", "gh"):
+    for program in ("claude", "gh", "osascript"):
         script(bin_dir / program, shlex.join(["exec", sys.executable, str(STAND_INS), program, str(state)]) + ' "$@"')
 
     def turns_of(step) -> list[dict]:
@@ -99,6 +99,13 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
     for role, turns in scripts.items():
         (state / f"{role}.json").write_text(json.dumps([{**turn, "go": f"{role}.{n}.go"} for n, turn in enumerate(turns)]))
     reached: dict[str, int] = {}  # how many of each Role's scripted turns the walk has reached
+
+    def notifications() -> list[str]:
+        """What the office has told the CEO on the desktop so far, as the stand-in sink kept it."""
+        told = state / "notifications"
+        return [json.loads(line) for line in told.read_text().splitlines()] if told.exists() else []
+
+    told: list[str] = []  # the notifications already shown
 
     def gh(args: list[str]) -> str:
         return subprocess.run([bin_dir / "gh", *args], check=True, capture_output=True, text=True).stdout
@@ -163,6 +170,9 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
                 listed.add(turn["id"])
                 woken.setdefault((turn["person_id"], turn["thread"]), []).append(turn["id"])
                 seen.append(f"{turn['person_id']} is woken on {where(turn['thread'])}")
+        new = notifications()[len(told):]
+        told.extend(new)
+        seen.extend(f"Notification: {text}" for text in new)
         seen.extend(
             f"Mandate {m['id']!r}: {m['status']}" + (", waiting for the CEO" if m["blocked_on_ceo"] else "")
             for m in mandate_states(db)

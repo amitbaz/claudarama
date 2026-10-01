@@ -144,7 +144,13 @@ def is_machine_paused() -> bool:
         return False
 
 def notify_ceo(msg: str) -> None:
-    subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claudarama"'], capture_output=True)
+    """The notification sink: a macOS notification on the CEO's desktop. Nothing where there is no ``osascript``."""
+    # The message is passed as an argument, never spliced into the script: it may quote a turn's own words.
+    script = 'on run argv\ndisplay notification (item 1 of argv) with title "Claudarama"\nend run'
+    try:
+        subprocess.run(["osascript", "-e", script, msg], capture_output=True)
+    except OSError:
+        pass
 
 def acquire_machine_slot(max_slots: int = 10) -> int:
     """Block until a machine slot is acquired. Returns file descriptor."""

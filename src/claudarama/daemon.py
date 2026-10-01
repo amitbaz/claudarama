@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.session import DB_ENV, TOKEN_ENV, follow_github
-from claudarama.supervisor import Supervisor
+from claudarama.supervisor import Supervisor, notify_ceo
 from claudarama.worktrees import remove_finished_worktrees
 
 from claudarama.db import (
@@ -224,15 +224,23 @@ def create_mcp_server(
 
     @server.tool()
     def record_ship_check(
-        pull_request: int, head_commit: str, verdict: str, diagnosis_path: str, command: str
+        pull_request: int, head_commit: str, verdict: str, diagnosis_path: str, command: str, reason: str = ""
     ) -> dict:
         """Log a Ship-check verdict (SHIP or FAIL) for a PR's head commit, with the Diagnosis path
         and the verification command you ran. The reviewer is taken from your token; only the
-        engineering-lead's verdict is accepted."""
+        engineering-lead's verdict is accepted.
+
+        A FAIL needs its one-line `reason`: it wakes the Role of the ticket you were woken on. That
+        ticket's second FAIL stops it instead: the mandate returns to INVESTIGATING, the
+        investigating Role is woken with both reasons, and the CEO is notified."""
         from claudarama.db import record_verdict
         identity = authenticate(db_path, token)
         reviewer_id = identity.person_id or "ceo"
-        record_verdict(db_path, pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command)
+        stopped = record_verdict(
+            db_path, pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command, reason, identity.ticket
+        )
+        if stopped:
+            notify_ceo(stopped)
         return {"ok": True, "pull_request": pull_request, "head_commit": head_commit, "verdict": verdict}
 
     @server.tool()

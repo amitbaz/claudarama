@@ -289,7 +289,12 @@ def queue_turn(
 
 
 def get_queued_turns(db_path: Path) -> list[dict]:
-    """Return all turns with status 'queued', oldest first."""
+    """Return the queued turns that may start now, oldest first.
+
+    A turn waits while its Person has one running, and while its ticket's mandate waits on the
+    CEO. While a mandate is INVESTIGATING only its investigation ticket is worked on: a ticket's
+    second FAIL sent it back, and the rest resumes once a revised Diagnosis passes its gate.
+    """
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -299,7 +304,9 @@ def get_queued_turns(db_path: Path) -> list[dict]:
             "  AND t.started_at <= CURRENT_TIMESTAMP "
             "  AND NOT EXISTS (SELECT 1 FROM turns WHERE status = 'running' AND person_id = t.person_id) "
             "  AND NOT EXISTS (SELECT 1 FROM tickets k JOIN mandates m ON m.id = k.mandate_id "
-            "                  WHERE m.blocked_on_ceo = 1 AND t.thread = 'ticket:' || k.id) "
+            # A mandate granted with no investigation ticket holds nothing back: `!=` against NULL is never true.
+            "                  WHERE t.thread = 'ticket:' || k.id AND (m.blocked_on_ceo = 1 OR "
+            "                         (m.status = 'INVESTIGATING' AND k.id != m.investigation_ticket))) "
             "ORDER BY t.started_at ASC"
         ).fetchall()
     return [dict(r) for r in rows]
@@ -455,11 +462,11 @@ def diagnosis_gates(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def one_line(reason: str) -> str:
-    """The CEO's reason for a NO, on one line. A NO without one is refused."""
+def one_line(reason: str, answer: str = "NO") -> str:
+    """The reason for a NO or a FAIL, on one line. One without a reason is refused."""
     reason = " ".join(reason.split())
     if not reason:
-        raise ValueError("a NO needs a one-line reason")
+        raise ValueError(f"a {answer} needs a one-line reason")
     return reason
 
 
@@ -822,11 +829,14 @@ def get_person_by_role(db_path: Path, role: str) -> dict | None:
 
 def record_verdict(
     db_path: Path, pull_request: int, head_commit: str, reviewer_id: str,
-    verdict: str, diagnosis_path: str, command: str,
-) -> None:
+    verdict: str, diagnosis_path: str, command: str, reason: str = "", ticket: str | None = None,
+) -> str | None:
     """Log a Ship-check verdict for a PR's head commit; a re-run on the same head replaces it.
 
     Only the engineering-lead may record one, so no author approves their own work.
+
+    A FAIL needs its one-line *reason*, which goes to the Role of *ticket*, the ticket the check
+    was made on. The ticket's second FAIL stops it instead: returns what the CEO is to be told.
     """
     if reviewer_id != "engineering-lead":
         raise PermissionError(
@@ -834,6 +844,8 @@ def record_verdict(
         )
     if verdict not in ("SHIP", "FAIL"):
         raise ValueError(f"verdict must be SHIP or FAIL, not {verdict!r}")
+    if verdict == "FAIL":
+        reason = one_line(reason, "FAIL")
     if not diagnosis_path.strip() or not command.strip():
         raise ValueError("a Ship-check needs the Diagnosis path and the command that was run")
     with sqlite3.connect(db_path) as conn:
@@ -846,6 +858,35 @@ def record_verdict(
             "verdict = excluded.verdict, diagnosis_path = excluded.diagnosis_path, command = excluded.command",
             (pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command),
         )
+    if verdict == "FAIL" and ticket and (role := ticket_role(db_path, ticket)):
+        return _fail(db_path, ticket, role, f"Ship-check of #{pull_request}: {reason}")
+    return None
+
+
+def _fail(db_path: Path, ticket: str, role: str, reason: str) -> str | None:
+    """A FAIL on *ticket* joins its thread. The first wakes the ticket's *role* with the reason.
+    From the second on the ticket is stopped: its mandate returns to INVESTIGATING and the
+    investigating Role is woken with every reason so far. Returns what the CEO is told then."""
+    store_message(db_path, "engineering-lead", role, "FAIL", reason, ticket=ticket)
+    # FAILs are counted per ticket as the FAIL messages in its thread.
+    fails = [m["body"] for m in get_thread(db_path, thread_key(ticket, None)) if m["msg_type"] == "FAIL"]
+    if len(fails) < 2:
+        wake(db_path, role, ticket)
+        return None
+    with sqlite3.connect(db_path) as conn:
+        mandate, investigator, investigation_ticket = conn.execute(
+            "SELECT m.id, m.investigator, m.investigation_ticket FROM tickets k JOIN mandates m ON m.id = k.mandate_id "
+            "WHERE k.id = ?", (ticket,)).fetchone()
+        conn.execute(  # a mandate waiting at a gate stays there for the CEO's answer
+            "UPDATE mandates SET status = 'INVESTIGATING' "
+            "WHERE id = ? AND status IN ('PLANNING', 'EXECUTING') AND blocked_on_ceo = 0", (mandate,))
+    failed = f"Ticket {ticket} failed its Ship-check {len(fails)} times"
+    if investigation_ticket:  # a mandate granted before grants named an investigation ticket has none
+        reasons = " ".join(f"{n}) {fail}" for n, fail in enumerate(fails, 1))
+        store_message(db_path, "engineering-lead", investigator, "STOPPED", f"{failed}. {reasons}", ticket=investigation_ticket)
+        wake(db_path, investigator, investigation_ticket)
+    return f"{failed}: mandate {mandate!r} is back with the {shown(investigator)}"
+
 
 def set_working_note(db_path: Path, person_id: str, ticket: str, note: str) -> None:
     with sqlite3.connect(db_path) as conn:

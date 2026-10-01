@@ -1,7 +1,7 @@
 {
   "name": "loop",
   "role": "researcher",
-  "description": "One Mandate walks through a real office, from its grant to CLOSED. Only claude, gh and the CEO's answers are stand-ins.",
+  "description": "One Mandate walks through a real office, from its grant to CLOSED. A second is stopped by a ticket's second FAIL and returns to investigation. Only claude, gh, the notification sink and the CEO's answers are stand-ins.",
   "prompt": "The CEO grants one Mandate and answers each gate until the Mandate is CLOSED.",
   "steps": [
     {"type": "ceo_action", "calls": [
@@ -86,7 +86,55 @@
         {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": "company/retros/checkout.md"}}
       ]}
     ]},
-    {"type": "ceo_action", "input": "YES"}
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "ceo_action", "calls": [
+      {"tool": "grant", "args": {"mandate": "Fix the search", "ticket": "4"}}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "4", "calls": [
+        {"tool": "submit_diagnosis", "args": {"mandate": "Fix the search", "diagnosis_path": "company/diagnoses/search.md"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "pm", "ticket": "4", "calls": [
+        {"tool": "submit_epic", "args": {"mandate": "Fix the search", "tickets": {"5": "designer"}}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "designer", "ticket": "5", "calls": [
+        {"run": ["gh", "pr", "create", "--title", "Clearer search results", "--body", "Closes #5"]}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "5", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 104, "head_commit": "commit-104", "verdict": "FAIL", "diagnosis_path": "company/diagnoses/search.md", "command": "pytest"}},
+        {"tool": "record_ship_check", "args": {"pull_request": 104, "head_commit": "commit-104", "verdict": "FAIL", "diagnosis_path": "company/diagnoses/search.md", "command": "pytest", "reason": "A search for two words still finds nothing."}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "designer", "ticket": "5", "calls": [
+        {"run": ["gh", "pr", "close", "104"]},
+        {"run": ["gh", "pr", "create", "--title", "Clearer search results", "--body", "Closes #5"]}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "5", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 105, "head_commit": "commit-105", "verdict": "FAIL", "diagnosis_path": "company/diagnoses/search.md", "command": "pytest", "reason": "Two words now match, but the timing is inside the spread."}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "4", "calls": [
+        {"tool": "submit_diagnosis", "args": {"mandate": "Fix the search", "diagnosis_path": "company/diagnoses/search-2.md"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "pm", "ticket": "4", "calls": [
+        {"tool": "submit_epic", "args": {"mandate": "Fix the search", "tickets": {"6": "designer"}}}
+      ]}
+    ]}
   ],
   "checks": {
     "includes": [
@@ -126,7 +174,17 @@
       "engineering-lead's turn: done\\nMandate 'Speed up checkout': CLOSED, waiting for the CEO",
       "Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers NO\\nCEO's reason: The Lesson is too vague to act on\\.\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\n",
       "\\| \\*\\*ceo → engineering-lead \\(Kif\\)\\*\\* \\[NO\\]: Lesson gate: The Lesson is too vague to act on\\.",
-      "Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers YES\\nMandate 'Speed up checkout': CLOSED\\n"
+      "Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers YES\\nMandate 'Speed up checkout': CLOSED\\n",
+      "Epic gate: mandate 'Fix the search', tickets:\\n  - 5: designer \\(Zoidberg\\)\\nCEO answers YES\\ndesigner is woken on ticket 5\\n",
+      "designer runs gh pr create .* -> https://github.com/office/project/pull/104\\ndesigner's turn: done\\nengineering-lead is woken on ticket 5\\n",
+      "engineering-lead calls record_ship_check .*\"command\": \"pytest\"\\} -> REFUSED: .*a FAIL needs a one-line reason",
+      "A search for two words still finds nothing\\.\"\\} -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\ndesigner is woken on ticket 5\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': EXECUTING\\n",
+      "\\| \\*\\*engineering-lead \\(Kif\\) → designer \\(Zoidberg\\)\\*\\* \\[FAIL\\]: Ship-check of #104: A search for two words still finds nothing\\.",
+      "designer runs gh pr create .* -> https://github.com/office/project/pull/105\\ndesigner's turn: done\\nengineering-lead is woken on ticket 5\\n",
+      "inside the spread\\.\"\\} -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nresearcher is woken on ticket 4\\nNotification: Ticket 5 failed its Ship-check 2 times: mandate 'Fix the search' is back with the researcher \\(Amy\\)\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': INVESTIGATING\\n",
+      "\\| \\*\\*engineering-lead \\(Kif\\) → researcher \\(Amy\\)\\*\\* \\[STOPPED\\]: Ticket 5 failed its Ship-check 2 times\\. 1\\) Ship-check of #104: A search for two words still finds nothing\\. 2\\) Ship-check of #105: Two words now match, but the timing is inside the spread\\.",
+      "diagnosis at company/diagnoses/search-2.md\\nCEO answers YES\\n(PR gate: #105 .*\\nCEO answers DISCUSS\\n)?pm is woken on ticket 4\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': PLANNING\\n",
+      "pm calls submit_epic .*\"6\": \"designer\".* -> \\{\"ok\": true.*\\npm's turn: done\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': EXECUTING, waiting for the CEO\\n"
     ]
   }
 }

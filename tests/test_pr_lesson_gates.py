@@ -49,7 +49,7 @@ class FakeGh:
 
 
 def _ship(db, verdict="SHIP", head=HEAD):
-    record_verdict(db, 7, head, "engineering-lead", verdict, "d.md", "uv run pytest")
+    record_verdict(db, 7, head, "engineering-lead", verdict, "d.md", "uv run pytest", "Not fixed.")
 
 
 def _state(db):

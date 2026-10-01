@@ -1,6 +1,6 @@
 # Sub-project 5: Core loop
 
-This spec details sub-project 5 of the blueprint. Decisions were settled with the owner on 2026-10-01. Terms follow `GLOSSARY.md`; the server's shape follows ADR-0003, and gated actions follow ADR-0002.
+This spec details sub-project 5 of the blueprint. Decisions were settled with the owner on 2026-10-01, and extended later that day with trustworthy diagnosis, the mandate report and project knowledge (user stories 63 to 78). Terms follow `GLOSSARY.md`; the server's shape follows ADR-0003, and gated actions follow ADR-0002.
 
 ## Problem Statement
 
@@ -15,11 +15,15 @@ The CEO wants to install Claudarama on any project, describe a problem, and have
 - An approved Lesson is a file path that nothing reads, so the office never gets better.
 - The CEO learns that a gate is waiting only by opening the office again.
 
+The case that matters most is when the CEO is lost: something in a large system is not working, and the CEO cannot tell whether the fault is in the code, the prompts, the bars or the tests themselves. Nothing in the office guards against the failure this invites. No one checks whether the measure can be believed, so specialists can spend a mandate's worth of turns fixing the wrong thing against a noisy test. No one challenges a Diagnosis before the CEO, who cannot judge it, is asked to approve it. A failing ticket can be retried without limit.
+
 ## Solution
 
 The CEO installs Claudarama once, as a Claude Code plugin from a marketplace or as a terminal command, and runs `setup` in a project. The Assistant asks a few questions to write the charter and confirms the project's test commands. From then on the CEO opens the office, from inside Claude Code or from the terminal, and talks to the Assistant.
 
 When the CEO describes a problem, the Assistant shapes it into a Mandate. Once the CEO grants it, the office runs by itself: a researcher writes a Diagnosis, the pm turns it into an Epic of tickets that each name the Role to do them, specialists work each ticket in its own worktree and open pull requests, the engineering-lead verifies each one, and the engineering-lead writes a Retro that proposes Lessons. The CEO answers four kinds of gate (Diagnosis, Epic, PR, Lesson) and is notified, on the desktop and on the phone, whenever one opens. Approved Lessons load into every later brief they apply to.
+
+The office's findings are built to be trusted when the CEO cannot check them. A Diagnosis reports how much its measure varies when nothing changes and tests each rival explanation. A second specialist tries to refute it before the CEO sees it. A fix counts only if it beats the measure's spread, and a ticket that fails verification twice stops and goes back for re-diagnosis. After a mandate, a report shows where the office went wrong, by Role.
 
 Every specialist exists from the first day. There is nothing to start, stop or configure beyond the pack, and offices for several projects run side by side.
 
@@ -111,6 +115,28 @@ Proof
 61. As a maintainer, I want a free scenario that drives the whole loop with scripted turns, so that a change that breaks the loop fails in CI.
 62. As a maintainer, I want role files checked against the template for free, so that a role file cannot silently lose a required part.
 
+Trustworthy findings
+
+63. As a CEO, I want to say that something is not working without knowing why and get a finding I can trust, so that I do not need to know where to begin.
+64. As a CEO, I want a Diagnosis to report how much its measure varies when nothing changes, so that nobody chases noise.
+65. As a CEO, I want a fix to count only if it beats that spread, so that a lucky run is never reported as an improvement.
+66. As a CEO, I want the office to repair the measure first when it is too noisy to judge anything, so that turns are not spent fixing against it.
+67. As a CEO, I want a Diagnosis to list the rival explanations at every level, each with what was run to check it, so that the office does not fix the first suspect it thought of.
+68. As a CEO, I want a second specialist to try to refute a Diagnosis before I see it, so that I am not the only check on a finding I cannot judge.
+69. As a CEO, I want the Challenge verdict and its reasons shown at the Diagnosis gate, so that I know whether the finding is contested.
+70. As a challenger, I want to regenerate the evidence a Diagnosis rests on, so that my verdict does not depend on the author's claims.
+71. As a CEO, I want a disputed Diagnosis returned to its author once before it reaches me, so that obvious gaps are closed without my time.
+72. As a CEO, I want a ticket that fails verification twice to stop and go back for re-diagnosis, so that the office never burns turns on endless attempts.
+73. As a CEO, I want the Assistant to ask me for a few judged cases when a mandate is about quality, so that the office knows what correct means to me.
+74. As a CEO, I want a Ship-check to name any change a pull request makes to a bar, a threshold or a test's expectation, so that a pass is never bought by loosening the bar.
+
+Understanding and improving the office
+
+75. As a CEO, I want a report for each mandate showing each Role's turns, the reasons for every NO and FAIL, the questions asked and where each transcript is, so that I can find what to improve.
+76. As a CEO, I want the Assistant to check at setup whether my project has its own agent instructions and offer to draft them, so that specialists start from the project's own knowledge.
+77. As a CEO, I want the setup interview to ask for my project's unwritten rules, so that every brief carries what cannot be looked up.
+78. As a CEO, I want to save my answer to a specialist's question as a Lesson, so that the same question is never asked twice.
+
 ## Implementation Decisions
 
 ### Distribution
@@ -171,19 +197,44 @@ The server queues the next turn itself on every transition.
 | Event | Who is woken |
 |---|---|
 | Mandate granted | The investigating Role, on the investigation ticket |
+| Diagnosis submitted | The challenging Role |
+| Challenge DISPUTED, first time | The investigating Role, with the reasons |
 | Diagnosis gate YES | The pm |
 | Epic gate YES | Each ticket's named Role |
 | A pull request opens for a ticket | The engineering-lead |
-| Ship-check FAIL | The ticket's Role, with the reason |
+| Ship-check FAIL, first time | The ticket's Role, with the reason |
+| Ship-check FAIL, second time on a ticket | The investigating Role, with both reasons; the mandate returns to INVESTIGATING |
 | Every ticket of the Mandate closed | The engineering-lead, to write the Retro |
 | Any gate NO | Whoever produced the work, with the CEO's reason |
 
-- The Assistant creates the investigation ticket and names the investigating Role when the Mandate is granted. The default is researcher.
+- The Assistant creates the investigation ticket and names the investigating Role and the challenging Role when the Mandate is granted. The investigator defaults to researcher and the challenger to engineering-lead.
 - Each drafted ticket in an Epic names a Role. The server refuses a Role with no role file.
 - A NO at any gate takes a one-line reason, which is stored and delivered.
 - The move to LEARNING happens while the office runs, not only when the CEO opens it.
 - A Ship-check verdict is accepted only from the engineering-lead.
 - `send` keeps its meaning for questions and blocked work. No turn has to fan work out.
+
+### Trustworthy diagnosis
+
+- A Diagnosis has required sections: the measure it relies on and how much that measure varies across repeated runs of the unchanged system; the rival explanations at every level (the code, the prompts, the bars, the tests, the overall approach, something missing) with what was run to check each; the CEO's judged cases when the Mandate has them; the recommended strategy. The server refuses a Diagnosis missing a section.
+- A fix counts only if it beats the measure's spread. When the measure is too noisy to judge, repairing the measure comes first. This is a shared office rule, and the engineering-lead's SHIP verdict rests on repeated runs.
+- A Ship-check names any change the pull request makes to a bar, a threshold or a test's expectation.
+- A Mandate has a challenging Role, different from the investigating Role, named at the grant where the CEO sees it. The Assistant names the eval-engineer when the problem is judged by a test or eval of AI behaviour.
+- Submitting a Diagnosis wakes the challenging Role. The Diagnosis gate opens only after a Challenge is recorded: STANDS or DISPUTED, with reasons and with what the challenger ran. The server refuses a Challenge from any other Role.
+- A DISPUTED Diagnosis returns to the investigating Role once. The next submission is challenged again and reaches the CEO with its verdict either way. The gate shows the verdict beside the Diagnosis.
+- A ticket's second FAIL queues no further turn for the ticket's Role. The Mandate returns to INVESTIGATING, the investigating Role is woken with both reasons, and the CEO is notified. Work resumes only after a revised Diagnosis passes the Diagnosis gate.
+- When a Mandate is about quality, the Assistant asks the CEO for a few judged cases (this is right, this is wrong, and why) and stores them with the Mandate.
+
+### The mandate report
+
+- `status` for a Mandate lists each Role that worked on it with its turns and usage, every NO and FAIL with its reason, every question or BLOCKED message, and where each turn's transcript is. It is a view over what the office already stores.
+
+### Project knowledge
+
+- Turns run inside the project, so they read its own agent instructions. At setup the Assistant checks whether such a file exists and offers to draft one.
+- The setup interview asks for the project's unwritten rules and writes them into a house-rules section of the charter, which every brief loads.
+- A pack overlay holds only a rule that applies to one Role. Overlays are not generated from a scan of the repository.
+- When the CEO answers a specialist's question about the project, the Assistant offers to save the answer as a Lesson, which the CEO adopts directly within the same length limit.
 
 ### Worktrees and documents
 
@@ -216,7 +267,9 @@ The server queues the next turn itself on every transition.
 
 - People keep an identifier, a name and a Role. Level and manager are removed, along with the unused merge check that read them.
 - Tickets gain the Role that will do them.
-- Mandates gain the investigating Role and the reason from the last NO. The stored lesson path becomes the Retro's path.
+- Mandates gain the investigating Role, the challenging Role, the CEO's judged cases and the reason from the last NO. The stored lesson path becomes the Retro's path.
+- A Challenge is stored with its verdict, its reasons, what was run and who recorded it.
+- A FAIL verdict stores its reason, and FAILs are counted per ticket.
 - A new table holds Lessons.
 
 ### Documentation
@@ -227,10 +280,10 @@ The blueprint, `ARCHITECTURE.md`, `COMPANY.md`, `PACK_SCHEMA.md`, `SCENARIOS.md`
 
 A good test here drives the office from the outside and asserts what the CEO or a specialist would observe: who was woken, what a brief contains, what was merged, what was refused. It does not assert internal function calls.
 
-1. **The loop scenario (primary).** A whole office runs in a temporary git repository with the real server, turn runner, brief builder, database and worktrees. Three edges are replaced through hooks the code already has: a scripted `claude` standing in for each turn, which calls the office's tools through the real server it is handed; a fake `gh`; scripted CEO answers at the gates. One new edge is added: a notification sink. The existing multi-step scenario runner is made real for this: today its turn is refused before it starts and its CEO step never touches a gate. This seam asserts routing at every transition, the ticket's Role, a NO carrying its reason, the Ship-check restricted to the engineering-lead, documents merged at their gates, Lessons appearing in the next brief, pause and resume when the Session closes, and two offices side by side.
+1. **The loop scenario (primary).** A whole office runs in a temporary git repository with the real server, turn runner, brief builder, database and worktrees. Three edges are replaced through hooks the code already has: a scripted `claude` standing in for each turn, which calls the office's tools through the real server it is handed; a fake `gh`; scripted CEO answers at the gates. One new edge is added: a notification sink. The existing multi-step scenario runner is made real for this: today its turn is refused before it starts and its CEO step never touches a gate. This seam asserts routing at every transition, the ticket's Role, a NO carrying its reason, the Ship-check restricted to the engineering-lead, documents merged at their gates, Lessons appearing in the next brief, pause and resume when the Session closes, and two offices side by side. It also asserts that no Diagnosis gate opens before a Challenge, that a Challenge from the wrong Role is refused, that a DISPUTED Diagnosis returns once, that a second FAIL stops the ticket and wakes the investigating Role, and that the mandate report shows each NO and FAIL reason against the right Role.
 2. **The gate hook fed recorded input.** Prior art: the existing hook tests. Adds: an internal error blocks; a command outside the allowlist is denied without blanket Bash.
 3. **Free static checks.** Prior art: the scenario validator. Each role file fits the seven-part template and length; the plugin manifest and its skills resolve; every key `setup` scaffolds is one the code reads.
-4. **The real run (manual, paid, never in CI).** One real Mandate on a new private repository, `claudarama-sandbox`, holding a minimal web app with one page, one table, one prompt and one eval, run from a plugin session with the CEO answering only the gates. Its Epic holds a ticket for every craft, so all ten Roles run at least once. After each step the transcript is read and the role file corrected where the Role went wrong; a line stays only if removing it changes what the Role does. A follow-up Mandate shows the Lesson in a brief. A smoke run passes through the terminal door.
+4. **The real run (manual, paid, never in CI).** One real Mandate on a new private repository, `claudarama-sandbox`, holding a minimal web app with one page, one table, one prompt and one eval, run from a plugin session with the CEO answering only the gates. Its Epic holds a ticket for every craft, so all ten Roles run at least once. After each step the transcript is read and the role file corrected where the Role went wrong; a line stays only if removing it changes what the Role does. The sandbox's eval is noisy by design, so the run must show the Diagnosis reporting the spread, a Challenge recorded before the Diagnosis gate, and a ticket stopped after its second FAIL. A follow-up Mandate shows the Lesson in a brief. A smoke run passes through the terminal door.
 
 The existing per-function tests stay. New behaviour is tested at seam 1.
 
@@ -238,7 +291,7 @@ The existing per-function tests stay. New behaviour is tested at seam 1.
 
 - **Removed outright:** hiring, `retire`, departments, locked future departments, `claudarama up`, direct talk with a Role.
 - **Deferred to sub-project 6 (Company rhythm), each to be re-decided:** levels, reviews, 1:1s, the per-person record, managers, key results and cycles, all-hands, a Mandate proposed from inside the office.
-- **Not started:** ideas, objections, incidents, engineering team splits, persona commit authors on GitHub, an automated real-model test runner, a messaging-service push, running two specialists of one Role in parallel, per-scope Lesson caps and automatic retirement, a server that keeps working with no Session open.
+- **Not started:** an investigation carried out by several specialists at once, each testing their own suspect; ideas, objections, incidents, engineering team splits, persona commit authors on GitHub, an automated real-model test runner, a messaging-service push, running two specialists of one Role in parallel, per-scope Lesson caps and automatic retirement, a server that keeps working with no Session open.
 - Spend caps stay with the Budget sub-project.
 
 ## Further Notes

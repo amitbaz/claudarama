@@ -54,10 +54,14 @@ A day on which the CEO opened the office. Rituals count office days, never calen
 An action only the CEO may take or approve.
 
 **Diagnosis**:
-The investigators' written finding on a granted mandate. Submitting it moves the mandate from INVESTIGATING to PLANNING and pauses it at the Diagnosis gate.
+The investigating Role's written finding on a granted mandate: the measure it relies on and how much that measure varies, the rival explanations and what was run to check each, and the recommended strategy. Submitting it moves the mandate from INVESTIGATING to PLANNING; it reaches the Diagnosis gate only after a Challenge.
+
+**Challenge**:
+A second Role's attempt to refute a Diagnosis before the CEO sees it, recorded as STANDS or DISPUTED with reasons and with what was run. The challenger regenerates the evidence rather than trusting the author's. A DISPUTED Diagnosis returns to its author once.
+_Avoid_: Review, critique
 
 **Diagnosis gate**:
-A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis. YES merges the Diagnosis and unblocks the mandate to plan, staying PLANNING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
+A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis, shown with its Challenge. YES merges the Diagnosis and unblocks the mandate to plan, staying PLANNING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
 **Epic**:
 A set of drafted tickets for a PLANNING mandate, each naming the Role that will do it, tied to it in the database and marked `drafted` until the CEO approves; there is no epics table. Tickets that already exist cannot be drafted. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.

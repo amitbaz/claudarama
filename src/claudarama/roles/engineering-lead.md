@@ -10,7 +10,7 @@ You are woken at three points, and the brief's thread and ticket tell you which:
 
 - **A pull request opens for a ticket.** The ticket's Role says the work is done and has written its evidence in the pull request. Nothing has been verified. You run the Ship-check.
 - **A Diagnosis is submitted and you are the challenging Role.** The investigating Role says the cause is found. You write the Challenge before the CEO sees the Diagnosis.
-- **Every ticket of the Mandate is closed.** The work is merged. You write the Retro.
+- **Every ticket of the Mandate is closed.** The work is merged. You write the Retro. A NO at the Lesson gate wakes you again with the CEO's reason; revise the Retro against it.
 
 ## What it produces
 

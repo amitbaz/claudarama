@@ -55,8 +55,7 @@ With `steps`, the reply the checks read is what a real office showed while the s
   "prompt": "The CEO grants a Mandate and declines its first Diagnosis.",
   "steps": [
     {"type": "ceo_action", "calls": [
-      {"tool": "grant", "args": {"mandate": "Speed up checkout"}},
-      {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "Speed up checkout"}}
+      {"tool": "grant", "args": {"mandate": "Speed up checkout", "ticket": "1"}}
     ]},
     {"type": "mock_llm_turns", "turns": [
       {"role": "researcher", "ticket": "1", "calls": [
@@ -64,10 +63,13 @@ With `steps`, the reply the checks read is what a real office showed while the s
         {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}}
       ]}
     ]},
-    {"type": "ceo_action", "input": "NO"}
+    {"type": "ceo_action", "input": "NO", "reason": "The cart is slow, not the payment page."}
   ],
   "checks": {
-    "includes": ["CEO answers NO\\nMandate 'Speed up checkout': INVESTIGATING"]
+    "includes": [
+      "CEO calls grant .*\\nresearcher is woken on ticket 1\\n",
+      "CEO's reason: The cart is slow, not the payment page\\.\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING"
+    ]
   }
 }
 ```
@@ -75,13 +77,16 @@ With `steps`, the reply the checks read is what a real office showed while the s
 Steps run in order.
 
 - **`ceo_action` with `calls`**: the CEO's Session calls the office's tools with the owner token. Each call names a `tool` and its `args`.
-- **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, through the same code that asks at `claudarama open`. An answer with no gate waiting fails the scenario.
+- **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, through the same code that asks at `claudarama open`. A `NO` gives its one-line `reason`. An answer with no gate waiting fails the scenario.
 - **`mock_llm_turns`**: each entry of `turns` is one scripted turn, with the `role` that runs it, the `ticket` whose thread wakes it, and its `calls`. A call is one of the office's tools (`tool`, `args`) or a command the turn runs where it works, which is its ticket's worktree (`run`). The turns of one step run side by side; the step ends when each has ended.
+
+The office wakes a Role itself, and after each step the walk shows who it woke. A scripted turn is the turn the office queued for that Role on that ticket; it acts when the walk reaches its step. Where the office queued none, the scenario queues the turn itself and shows no `is woken` line for it.
 
 The office shows one line per event, and `checks` match against these lines:
 
 ```
 CEO calls <tool> <args> -> <answer>
+<role> is woken on ticket <ticket>
 <role>'s brief:
   | <the brief the turn was started with, line by line>
 <role> calls <tool> <args> -> <answer>
@@ -92,12 +97,14 @@ CEO calls <tool> <args> -> <answer>
 <role>'s turn: failed: <the error>
 Diagnosis gate: mandate '<mandate>', diagnosis at <path>
 CEO answers YES
+CEO answers NO
+CEO's reason: <the reason>
 Mandate '<mandate>': <STATUS>
 Mandate '<mandate>': <STATUS>, waiting for the CEO
 The CEO's checkout is on <branch>; worktrees: <ticket-1, ticket-2, or none>
 ```
 
-Every Mandate's line is shown again after each step, so a check can name the step and the state it leaves: `"CEO answers NO\\nMandate 'Speed up checkout': INVESTIGATING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
+After each step come the turns the office queued during it, then every Mandate's line, so a check can name the step, who it woke and the state it leaves: `"CEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
 
 `scenarios/loop.json` walks one Mandate through every state from its grant to CLOSED. A change to how the loop moves adds its scripted turns, CEO answers and checks there.
 

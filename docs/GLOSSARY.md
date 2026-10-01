@@ -45,13 +45,13 @@ A short note (at most 500 characters) a person leaves at the end of a turn: the 
 A body of work the office takes on for the CEO, which breaks into an Epic of tickets. The office works on it only once the CEO grants it.
 
 **Grant**:
-The CEO's approval of one mandate. Only turns for tickets under a granted mandate (replies included), rituals and the Assistant may start; other work needs a ticket first.
+The CEO's approval of one mandate, naming its investigation ticket and its investigating Role (researcher unless another is named), who is woken on that ticket. Only turns for tickets under a granted mandate (replies included), rituals and the Assistant may start; other work needs a ticket first.
 
 **Office day**:
 A day on which the CEO opened the office. Rituals count office days, never calendar weeks.
 
 **Gate**:
-An action only the CEO may take or approve.
+An action only the CEO may take or approve. A NO at any Gate takes a one-line reason, which joins the ticket's thread and wakes whoever produced the work.
 
 **Diagnosis**:
 The investigating Role's written finding on a granted mandate: the measure it relies on and how much that measure varies, the rival explanations and what was run to check each, and the recommended strategy. Submitting it moves the mandate from INVESTIGATING to PLANNING; it reaches the Diagnosis gate only after a Challenge.
@@ -61,7 +61,7 @@ A second Role's attempt to refute a Diagnosis before the CEO sees it, recorded a
 _Avoid_: Review, critique
 
 **Diagnosis gate**:
-A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis, shown with its Challenge. YES merges the Diagnosis and unblocks the mandate to plan, staying PLANNING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
+A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis, shown with its Challenge. YES merges the Diagnosis, unblocks the mandate to plan, staying PLANNING, and wakes the pm; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
 **Epic**:
 A set of drafted tickets for a PLANNING mandate, each naming the Role that will do it, tied to it in the database and marked `drafted` until the CEO approves; there is no epics table. Tickets that already exist cannot be drafted. Submitting it moves the mandate from PLANNING to EXECUTING and pauses it at the Epic gate.

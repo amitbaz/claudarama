@@ -57,9 +57,7 @@ def test_a_turn_the_office_refuses_to_start_shows_the_reason_instead_of_its_call
 
 
 def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
-    granted = {"type": "ceo_action", "calls": [
-        {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "M"}},
-    ]}
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
     asks = {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": [
         {"tool": "send", "args": {"receiver_id": "pm", "msg_type": "QUESTION", "body": "Which page?", "ticket": "1"}},
         {"run": ["sleep", "0.5"]},
@@ -73,28 +71,33 @@ def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
 
 # --- a worktree per ticket (issue #91) ---------------------------------------------
 
-M_GRANTED = {"type": "ceo_action", "calls": [
-    {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "M"}},
-]}
-OPEN_PR = {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #1"]}
-DECLINED = "CEO answers NO\\nMandate 'M': INVESTIGATING\\nThe CEO's checkout is on main; worktrees: "
+M_GRANTED = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
+# The researcher opens a pull request from the ticket's branch, withdraws it, and submits a Diagnosis.
+# The CEO's DISCUSS then reviews the gates and wakes nobody on the ticket.
+WITHDRAWN_PR = [
+    {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #1"]},
+    {"run": ["gh", "pr", "close", "101"]},
+    {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
+]
+REVIEWED = "CEO answers DISCUSS\\nMandate 'M': PLANNING, waiting for the CEO\\nThe CEO's checkout is on main; worktrees: "
 
 
 def _on_ticket_1(*calls: dict) -> dict:
     return {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": list(calls)}]}
 
 
-def test_a_declined_pull_request_takes_the_tickets_worktree_and_leaves_its_branch_for_the_next_turn():
+def test_a_closed_pull_request_takes_the_tickets_worktree_and_leaves_its_branch_for_the_next_turn():
     commit = ["git", "-c", "user.name=Amy", "-c", "user.email=amy@example.com", "commit", "--allow-empty", "-m", "Faster checkout"]
     steps = [
         M_GRANTED,
-        _on_ticket_1({"run": commit}, OPEN_PR),
-        {"type": "ceo_action", "input": "NO"},
+        _on_ticket_1({"run": commit}, *WITHDRAWN_PR),
+        {"type": "ceo_action", "input": "DISCUSS"},
+        {"type": "ceo_action", "input": "NO", "reason": "Look at the cart."},
         _on_ticket_1({"run": ["git", "log", "-1", "--format=%s on %D"]}),
     ]
 
     result = _walk(steps, includes=[
-        DECLINED + "none\\n",
+        REVIEWED + "none\\n",
         "researcher runs git log -1 '--format=%s on %D' -> Faster checkout on HEAD -> ticket-1\\nresearcher's turn: done\\n"
         "Mandate 'M': INVESTIGATING\\nThe CEO's checkout is on main; worktrees: ticket-1\\n",
     ])
@@ -102,22 +105,16 @@ def test_a_declined_pull_request_takes_the_tickets_worktree_and_leaves_its_branc
     assert result.passed, _why(result)
 
 
-@pytest.mark.parametrize("still_in_use", [
-    {"run": ["touch", "uncommitted-work"]},
-    {"tool": "send", "args": {"receiver_id": "pm", "msg_type": "QUESTION", "body": "Which page?", "ticket": "1"}},  # queues a turn
-])
-def test_a_worktree_still_in_use_stays_when_its_pull_request_is_declined(still_in_use):
-    steps = [M_GRANTED, _on_ticket_1(OPEN_PR, still_in_use), {"type": "ceo_action", "input": "NO"}]
+def test_a_worktree_holding_uncommitted_work_stays_when_its_pull_request_closes():
+    steps = [M_GRANTED, _on_ticket_1({"run": ["touch", "uncommitted-work"]}, *WITHDRAWN_PR), {"type": "ceo_action", "input": "DISCUSS"}]
 
-    result = _walk(steps, includes=[DECLINED + "ticket-1\\n"])
+    result = _walk(steps, includes=[REVIEWED + "ticket-1\\n"])
 
     assert result.passed, _why(result)
 
 
 def test_a_ticket_named_like_a_path_gets_no_worktree_and_its_turn_fails_with_the_reason():
-    granted = {"type": "ceo_action", "calls": [
-        {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "../../1", "mandate": "M"}},
-    ]}
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "../../1"}}]}
     turn = {"type": "mock_llm_turns", "turns": [{"ticket": "../../1", "calls": [{"run": ["pwd"]}]}]}
 
     result = _walk([granted, turn], includes=[
@@ -129,6 +126,29 @@ def test_a_ticket_named_like_a_path_gets_no_worktree_and_its_turn_fails_with_the
     assert "researcher runs" not in result.turn_results[0].person_reply
 
 
+def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
+    steps = [
+        {"type": "ceo_action", "calls": [
+            {"tool": "grant", "args": {"mandate": "M", "ticket": "1", "investigator": "eval-engineer"}},
+            {"tool": "grant", "args": {"mandate": "M", "ticket": "1", "investigator": "eval-engineer"}},
+            {"tool": "grant", "args": {"mandate": "N", "ticket": "2", "investigator": "detective"}},
+        ]},
+        {"type": "mock_llm_turns", "turns": [{"role": "eval-engineer", "ticket": "1", "calls": [
+            {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
+        ]}]},
+        {"type": "ceo_action", "input": "NO", "reason": "The eval is too noisy to tell."},
+    ]
+
+    result = _walk(steps, includes=[
+        # Granting twice wakes the investigating Role once; a Role the office does not have is refused.
+        "REFUSED: .*unknown Role 'detective'.*\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
+        "CEO's reason: The eval is too noisy to tell\\.\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\nThe CEO's checkout .*\\n$",
+    ])
+
+    assert result.passed, _why(result)
+    assert "Mandate 'N'" not in result.turn_results[0].person_reply
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),
@@ -137,6 +157,9 @@ def test_a_ticket_named_like_a_path_gets_no_worktree_and_its_turn_fails_with_the
     ({"type": "ceo_action", "calls": [{"run": ["gh", "pr", "merge", "101"]}]}, "a call that is not {'tool', 'args'}"),
     ({"type": "ceo_action", "input": "YES", "calls": [{"tool": "grant"}]}, "either an 'input'"),
     ({"type": "ceo_action", "input": "MAYBE"}, "either an 'input'"),
+    ({"type": "ceo_action", "input": "NO"}, "a one-line 'reason' with NO"),
+    ({"type": "ceo_action", "input": "NO", "reason": "Wrong page.\nAnd too slow."}, "a one-line 'reason' with NO"),
+    ({"type": "ceo_action", "input": "YES", "reason": "Looks right."}, "only with NO"),
 ])
 def test_a_step_the_office_could_not_carry_out_is_refused_by_the_free_checker(step, problem):
     checked = validate_scenario(_scenario([step], includes=["^"]))

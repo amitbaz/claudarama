@@ -70,7 +70,7 @@ def test_discuss_stays_paused_and_no_discards_the_drafted_tickets(db):
     _submit(db)
     assert review_epic_gates(db, ask=lambda _: "discuss")
     assert _state(db) == ("EXECUTING", 1)
-    answers = iter(["maybe", "no"])
+    answers = iter(["maybe", "no", "Too broad."])
     review_epic_gates(db, ask=lambda _: next(answers))
     assert _state(db) == ("PLANNING", 0)
     assert _tickets(db) == []

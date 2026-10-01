@@ -32,15 +32,13 @@ class FakeGh:
 def _office(tmp_path, gh):
     db = tmp_path / "office.db"
     init_db(db)
-    with sqlite3.connect(db) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
     server = create_mcp_server(db_path=db, gh=gh)
 
     def call(token, tool, **args):
         ctx = SimpleNamespace(request_context=SimpleNamespace(request=SimpleNamespace(path_params={"token": token})))
         return server._tool_manager.get_tool(tool).fn(**args, ctx=ctx)
 
-    turn = queue_turn(db, "p1")
+    turn = queue_turn(db, "fullstack-engineer")
     mark_turn_running(db, turn)
     return db, call, get_owner_token(db), create_turn_token(db, turn)
 

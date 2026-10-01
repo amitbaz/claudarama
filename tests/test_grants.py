@@ -19,11 +19,6 @@ from claudarama.supervisor import Supervisor
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
-    with sqlite3.connect(path) as conn:
-        conn.executemany(
-            "INSERT INTO people (id, name, role) VALUES (?, ?, ?)",
-            [("p1", "Bender", "engineer"), ("p2", "Leela", "assistant")],
-        )
     return path
 
 
@@ -39,7 +34,7 @@ def _call(db, token, tool, args):
 
 
 def _turn_token(db):
-    turn_id = queue_turn(db, "p1")
+    turn_id = queue_turn(db, "fullstack-engineer")
     mark_turn_running(db, turn_id)
     return create_turn_token(db, turn_id)
 
@@ -70,16 +65,16 @@ def test_ticket_needs_granted_mandate_and_can_be_hard(db):
 
 @pytest.mark.parametrize("thread", [None, "topic:x", "ticket:T-9"])
 def test_ungranted_or_ticketless_turn_is_refused_with_reason(db, tmp_path, thread):
-    status, refusal = _run(db, tmp_path, queue_turn(db, "p1", thread=thread))
+    status, refusal = _run(db, tmp_path, queue_turn(db, "fullstack-engineer", thread=thread))
     assert status == "refused" and refusal
 
 
 def test_granted_ticket_turn_and_its_reply_start(db, tmp_path):
     _call(db, get_owner_token(db), "grant", {"mandate": "M1"})
     _call(db, _turn_token(db), "ticket_ready", {"ticket": "T-1", "mandate": "M1"})
-    assert _run(db, tmp_path, queue_turn(db, "p1", thread="ticket:T-1"))[0] == "done"
+    assert _run(db, tmp_path, queue_turn(db, "fullstack-engineer", thread="ticket:T-1"))[0] == "done"
 
 
 def test_ritual_and_assistant_turns_need_no_mandate(db, tmp_path):
-    assert _run(db, tmp_path, queue_turn(db, "p1", kind="ritual"))[0] == "done"
-    assert _run(db, tmp_path, queue_turn(db, "p2"))[0] == "done"
+    assert _run(db, tmp_path, queue_turn(db, "fullstack-engineer", kind="ritual"))[0] == "done"
+    assert _run(db, tmp_path, queue_turn(db, "assistant"))[0] == "done"

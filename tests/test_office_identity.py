@@ -58,9 +58,9 @@ def test_same_named_repositories_get_separate_offices(tmp_path, home, monkeypatc
     init_db(db_one)
     init_db(db_two)
     with sqlite3.connect(db_one) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p', 'n', 'pm')")
+        conn.execute("INSERT INTO mandates (id) VALUES ('m')")
     with sqlite3.connect(db_two) as conn:
-        assert conn.execute("SELECT count(*) FROM people").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM mandates").fetchone()[0] == 0
 
 
 def test_name_is_never_empty_or_a_dot_in_a_normal_clone(tmp_path, home, monkeypatch):

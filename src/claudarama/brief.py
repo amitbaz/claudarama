@@ -1,6 +1,8 @@
 """Brief builder: assembles a turn's brief from pack files on disk."""
 from pathlib import Path
 
+from claudarama.db import shown
+
 
 def build_brief(
     pack_dir: Path,
@@ -33,8 +35,8 @@ def build_brief(
     if thread:
         lines = ["## Message Thread"]
         for msg in thread:
-            sender = msg.get("sender", "?")
-            receiver = msg.get("receiver", "?")
+            sender = shown(msg.get("sender", "?"))
+            receiver = shown(msg.get("receiver", "?"))
             msg_type = msg.get("msg_type", "")
             body = msg.get("body", "")
             lines.append(f"**{sender} → {receiver}** [{msg_type}]: {body}")

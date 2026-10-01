@@ -5,7 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from claudarama.daemon import create_mcp_server
-from claudarama.db import get_owner_token, grant_mandate, init_db, submit_diagnosis
+from claudarama.db import (
+    create_turn_token, get_owner_token, grant_mandate, init_db, mark_turn_running, queue_turn,
+    ship_checked, submit_diagnosis,
+)
 
 
 @pytest.fixture
@@ -17,9 +20,17 @@ def db(tmp_path):
     return path
 
 
-def _ship_check(db, **args):
+def _token(db, caller):
+    if caller == "ceo":
+        return get_owner_token(db)
+    turn_id = queue_turn(db, caller, kind="ritual")
+    mark_turn_running(db, turn_id)
+    return create_turn_token(db, turn_id)
+
+
+def _ship_check(db, caller="engineering-lead", **args):
     ctx = SimpleNamespace(request_context=SimpleNamespace(
-        request=SimpleNamespace(path_params={"token": get_owner_token(db)})))
+        request=SimpleNamespace(path_params={"token": _token(db, caller)})))
     tool = create_mcp_server(db_path=db)._tool_manager.get_tool("record_ship_check")
     return tool.fn(ctx=ctx, **args)
 
@@ -37,7 +48,15 @@ GOOD = dict(pull_request=7, head_commit="abc123", verdict="SHIP",
 
 def test_records_verdict_with_diagnosis_and_command(db):
     assert _ship_check(db, **GOOD)["ok"]
-    assert _rows(db) == [(7, "abc123", "ceo", "SHIP", "docs/diagnoses/m1.md", "uv run pytest")]
+    assert _rows(db) == [(7, "abc123", "engineering-lead", "SHIP", "docs/diagnoses/m1.md", "uv run pytest")]
+    assert ship_checked(db, 7, "abc123")
+
+
+@pytest.mark.parametrize("caller", ["fullstack-engineer", "eval-engineer", "assistant", "ceo"])
+def test_a_verdict_from_anyone_but_the_engineering_lead_is_refused(db, caller):
+    with pytest.raises(PermissionError, match="only from the engineering-lead"):
+        _ship_check(db, caller, **GOOD)
+    assert not ship_checked(db, 7, "abc123")
 
 
 def test_rerun_on_same_head_replaces_the_verdict(db):

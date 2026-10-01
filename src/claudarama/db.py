@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS verdicts (
     head_commit TEXT NOT NULL,
     reviewer_id TEXT NOT NULL,
     verdict TEXT NOT NULL,
+    diagnosis_path TEXT,  -- the Diagnosis evidence the check was run against
+    command TEXT,         -- the verification command that was run
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (pull_request, head_commit, reviewer_id)
 );
@@ -177,6 +179,10 @@ def init_db(db_path: Path) -> None:
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE mandates ADD COLUMN {col} {decl}")
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(verdicts)")}
+        for col in ("diagnosis_path", "command"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE verdicts ADD COLUMN {col} TEXT")
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
         if "thread" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN thread TEXT")
@@ -546,12 +552,22 @@ def get_person_by_name(db_path: Path, name: str) -> dict | None:
         row = conn.execute("SELECT * FROM people WHERE name = ?", (name,)).fetchone()
     return dict(row) if row else None
 
-def record_verdict(db_path: Path, pull_request: int, head_commit: str, reviewer_id: str, verdict: str) -> None:
+def record_verdict(
+    db_path: Path, pull_request: int, head_commit: str, reviewer_id: str,
+    verdict: str, diagnosis_path: str, command: str,
+) -> None:
+    """Log a Ship-check verdict for a PR's head commit; a re-run on the same head replaces it."""
+    if verdict not in ("SHIP", "FAIL"):
+        raise ValueError(f"verdict must be SHIP or FAIL, not {verdict!r}")
+    if not diagnosis_path.strip() or not command.strip():
+        raise ValueError("a Ship-check needs the Diagnosis path and the command that was run")
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO verdicts (pull_request, head_commit, reviewer_id, verdict) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(pull_request, head_commit, reviewer_id) DO UPDATE SET verdict = excluded.verdict",
-            (pull_request, head_commit, reviewer_id, verdict),
+            "INSERT INTO verdicts (pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(pull_request, head_commit, reviewer_id) DO UPDATE SET "
+            "verdict = excluded.verdict, diagnosis_path = excluded.diagnosis_path, command = excluded.command",
+            (pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command),
         )
 
 def set_working_note(db_path: Path, person_id: str, ticket: str, note: str) -> None:

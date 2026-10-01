@@ -176,12 +176,15 @@ def create_mcp_server(
         return asdict(authenticate(db_path, _token_of(ctx)))
 
     @server.tool()
-    def ship_verdict(pull_request: int, head_commit: str, verdict: str, ctx: Context) -> dict:
-        """Record a SHIP verdict for a PR's head commit. The reviewer is taken from your token."""
+    def record_ship_check(
+        pull_request: int, head_commit: str, verdict: str, diagnosis_path: str, command: str, ctx: Context
+    ) -> dict:
+        """Log a Ship-check verdict (SHIP or FAIL) for a PR's head commit, with the Diagnosis path
+        and the verification command you ran. The reviewer is taken from your token."""
         from claudarama.db import record_verdict
         identity = authenticate(db_path, _token_of(ctx))
         reviewer_id = identity.person_id or "ceo"
-        record_verdict(db_path, pull_request, head_commit, reviewer_id, verdict)
+        record_verdict(db_path, pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command)
         return {"ok": True, "pull_request": pull_request, "head_commit": head_commit, "verdict": verdict}
 
     @server.tool()

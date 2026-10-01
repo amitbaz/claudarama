@@ -59,5 +59,8 @@ The investigators' written finding on a granted mandate. Submitting it moves the
 **Diagnosis gate**:
 A Gate where the CEO answers YES, NO or DISCUSS on a Diagnosis. YES moves the mandate to EXECUTING; NO returns it to INVESTIGATING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
+**Ship-check**:
+The Engineering Lead's independent verification of a Pull Request, logged with `record_ship_check` as a SHIP or FAIL verdict on the PR's head commit, together with the Diagnosis path and the command that was run. The merge gate requires a SHIP verdict for the head commit.
+
 **Gate hook**:
 The PreToolUse hook that checks every tool call of a turn against the turn's allowlist and denies what is not on it. It enforces the allowlist; it is not itself a Gate.

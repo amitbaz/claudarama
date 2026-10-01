@@ -139,6 +139,7 @@ def test_the_assistants_brief_covers_mandates_setup_and_project_knowledge(tmp_pa
         # shaping a Mandate and naming the investigator
         "**a mandate**",
         "**investigating role**: researcher by default",
+        "call `grant` with the mandate, that ticket and the investigating role",
         # judged cases anchor a quality Mandate
         "this is right, this is wrong, and why",
         "attach them to the mandate",
@@ -165,6 +166,7 @@ def test_the_assistants_brief_covers_reaching_the_ceo_and_answering_gates_in_the
         # every gate is listed and answered inside the Session, DISCUSS included
         "call `list_gates` and present each gate",
         "pass the ceo's yes or no to `answer_gate`",
+        "a no goes with the ceo's one-line reason",
         "discuss is a conversation",
         "until the ceo says yes or no",
         # messages addressed to the CEO are shown together at open

@@ -57,9 +57,7 @@ def test_a_turn_the_office_refuses_to_start_shows_the_reason_instead_of_its_call
 
 
 def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
-    granted = {"type": "ceo_action", "calls": [
-        {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "M"}},
-    ]}
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
     asks = {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": [
         {"tool": "send", "args": {"receiver_id": "pm", "msg_type": "QUESTION", "body": "Which page?", "ticket": "1"}},
         {"run": ["sleep", "0.5"]},
@@ -72,9 +70,7 @@ def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
 
 
 def test_a_turn_can_neither_list_nor_answer_a_gate():
-    granted = {"type": "ceo_action", "calls": [
-        {"tool": "grant", "args": {"mandate": "M"}}, {"tool": "ticket_ready", "args": {"ticket": "1", "mandate": "M"}},
-    ]}
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
     approves_its_own = {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": [
         {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "d.md"}},
         {"tool": "list_gates"},
@@ -90,6 +86,29 @@ def test_a_turn_can_neither_list_nor_answer_a_gate():
     assert result.passed, _why(result)
 
 
+def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
+    steps = [
+        {"type": "ceo_action", "calls": [
+            {"tool": "grant", "args": {"mandate": "M", "ticket": "1", "investigator": "eval-engineer"}},
+            {"tool": "grant", "args": {"mandate": "M", "ticket": "1", "investigator": "eval-engineer"}},
+            {"tool": "grant", "args": {"mandate": "N", "ticket": "2", "investigator": "detective"}},
+        ]},
+        {"type": "mock_llm_turns", "turns": [{"role": "eval-engineer", "ticket": "1", "calls": [
+            {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
+        ]}]},
+        {"type": "ceo_action", "input": "NO", "reason": "The eval is too noisy to tell."},
+    ]
+
+    result = _walk(steps, includes=[
+        # Granting twice wakes the investigating Role once; a Role the office does not have is refused.
+        "REFUSED: .*unknown Role 'detective'.*\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
+        "CEO's reason: The eval is too noisy to tell\\.\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n$",
+    ])
+
+    assert result.passed, _why(result)
+    assert "Mandate 'N'" not in result.turn_results[0].person_reply
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),
@@ -98,6 +117,9 @@ def test_a_turn_can_neither_list_nor_answer_a_gate():
     ({"type": "ceo_action", "calls": [{"run": ["gh", "pr", "merge", "101"]}]}, "a call that is not {'tool', 'args'}"),
     ({"type": "ceo_action", "input": "YES", "calls": [{"tool": "grant"}]}, "either an 'input'"),
     ({"type": "ceo_action", "input": "MAYBE"}, "either an 'input'"),
+    ({"type": "ceo_action", "input": "NO"}, "a one-line 'reason' with NO"),
+    ({"type": "ceo_action", "input": "NO", "reason": "Wrong page.\nAnd too slow."}, "a one-line 'reason' with NO"),
+    ({"type": "ceo_action", "input": "YES", "reason": "Looks right."}, "only with NO"),
 ])
 def test_a_step_the_office_could_not_carry_out_is_refused_by_the_free_checker(step, problem):
     checked = validate_scenario(_scenario([step], includes=["^"]))

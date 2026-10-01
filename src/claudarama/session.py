@@ -20,6 +20,8 @@ from claudarama.db import (
     lesson_gates,
     mandates_of_tickets,
     mark_shown,
+    one_line,
+    pauses,
     resolve_diagnosis_gate,
     resolve_epic_gate,
     resolve_lesson_gate,
@@ -27,7 +29,9 @@ from claudarama.db import (
     shipped,
     shown,
     start_learning,
+    ticket_author,
     tickets_by_mandate,
+    wake,
 )
 from claudarama.mirror import Gh, run_gh
 from claudarama.scaffold import PACK_DIR_NAME
@@ -55,7 +59,8 @@ def mcp_config(db_path: Path, token: str) -> str:
 
 
 def _review(gates: list[dict], describe, resolve, ask) -> bool:
-    """Ask the CEO YES/NO/DISCUSS for each gate. True when any is left for discussion."""
+    """Ask the CEO YES/NO/DISCUSS for each gate, and a one-line reason for a NO.
+    True when any is left for discussion."""
     discuss = False
     for gate in gates:
         print(describe(gate))
@@ -63,11 +68,14 @@ def _review(gates: list[dict], describe, resolve, ask) -> bool:
             print("Please answer YES, NO or DISCUSS.")
         if answer == "DISCUSS":
             discuss = True
-        else:
-            try:
-                resolve(gate["id"], answer == "YES")
-            except PermissionError as e:
-                print(f"Blocked: {e}.")
+            continue
+        reason = ""
+        while answer == "NO" and not (reason := ask("Why not, in one line? ").strip()):
+            print("A NO needs a reason: it goes to whoever produced the work.")
+        try:
+            resolve(gate["id"], answer == "YES", reason)
+        except PermissionError as e:
+            print(f"Blocked: {e}.")
     return discuss
 
 
@@ -78,7 +86,7 @@ def _diagnosis(db_path: Path):
     return (
         diagnosis_gates(db_path),
         lambda g: f"Diagnosis gate: mandate {g['id']!r}, diagnosis at {g['diagnosis_path']}",
-        lambda mandate, ok: resolve_diagnosis_gate(db_path, mandate, ok),
+        lambda mandate, ok, reason: resolve_diagnosis_gate(db_path, mandate, ok, reason),
     )
 
 
@@ -86,7 +94,7 @@ def _epic(db_path: Path):
     return (
         epic_gates(db_path),
         lambda g: f"Epic gate: mandate {g['id']!r}, tickets:\n" + "\n".join(f"  - {t}" for t in g["tickets"]),
-        lambda mandate, ok: resolve_epic_gate(db_path, mandate, ok),
+        lambda mandate, ok, reason: resolve_epic_gate(db_path, mandate, ok, reason),
     )
 
 
@@ -94,7 +102,7 @@ def _lesson(db_path: Path):
     return (
         lesson_gates(db_path),
         lambda g: f"Lesson gate: mandate {g['id']!r}, lessons at {g['lesson_path']}",
-        lambda mandate, ok: resolve_lesson_gate(db_path, mandate, ok),
+        lambda mandate, ok, reason: resolve_lesson_gate(db_path, mandate, ok, reason),
     )
 
 
@@ -113,14 +121,18 @@ def _open_prs(db_path: Path, gh: Gh) -> list[dict]:
     prs = json.loads(gh(["pr", "list", "--state", "open", "--json", "number,title,headRefOid,closingIssuesReferences"]))
     out = []
     for pr in prs:
-        mandates = mandates_of_tickets(db_path, [str(i["number"]) for i in pr["closingIssuesReferences"]])
+        tickets = [str(i["number"]) for i in pr["closingIssuesReferences"]]
+        mandates = mandates_of_tickets(db_path, tickets)
         if mandates:
-            out.append({"id": pr["number"], "title": pr["title"], "head": pr["headRefOid"], "mandates": mandates})
+            out.append({
+                "id": pr["number"], "title": pr["title"], "head": pr["headRefOid"], "mandates": mandates, "tickets": tickets,
+            })
     return out
 
 
 def _pr(db_path: Path, gh: Gh):
-    """YES merges, but only with a SHIP verdict on the head commit; NO closes the PR. No gates when gh fails."""
+    """YES merges, but only with a SHIP verdict on the head commit; NO closes the PR and wakes whoever
+    worked on its tickets with the CEO's reason. No gates when gh fails."""
     try:
         prs = {pr["id"]: pr for pr in _open_prs(db_path, gh)}
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
@@ -131,10 +143,14 @@ def _pr(db_path: Path, gh: Gh):
         check = "SHIP" if ship_checked(db_path, g["id"], g["head"]) else "MISSING"
         return f"PR gate: #{g['id']} {g['title']!r} (mandates {', '.join(g['mandates'])}), Ship-check: {check}"
 
-    def resolve(number: int, ok: bool) -> None:
+    def resolve(number: int, ok: bool, reason: str) -> None:
         pr = prs[number]
         if not ok:
+            no = f"PR gate: {one_line(reason)}"
             gh(["pr", "close", str(number), "--comment", "Declined by the CEO at the PR gate."])
+            for ticket in pr["tickets"]:
+                if author := ticket_author(db_path, ticket):
+                    wake(db_path, author, ticket, no)
         elif not ship_checked(db_path, number, pr["head"]):
             raise PermissionError(f"no SHIP verdict for head commit {pr['head'][:8]} of PR #{number}; not merged")
         else:
@@ -150,7 +166,8 @@ def review_pr_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> bool:
 
 def open_gates(db_path: Path, gh: Gh | None = run_gh) -> list[dict]:
     """Every gate waiting for the CEO, in the order of the loop: its name (``gate``), what the CEO
-    is shown (``shows``) and how a YES or NO resolves it (``resolve(approved)``). No PR gates without *gh*."""
+    is shown (``shows``) and how a YES or NO resolves it (``resolve(approved, reason)``; a NO
+    needs its one-line reason). No PR gates without *gh*."""
     kinds = [("diagnosis", _diagnosis(db_path)), ("epic", _epic(db_path))]
     kinds += [("pr", _pr(db_path, gh))] if gh else []
     kinds += [("lesson", _lesson(db_path))]
@@ -161,12 +178,18 @@ def open_gates(db_path: Path, gh: Gh | None = run_gh) -> list[dict]:
     ]
 
 
-def waiting(db_path: Path) -> list[str]:
+def waiting(db_path: Path) -> dict[tuple, str]:
     """What the CEO is told of each gate, read from the office's own records alone, so asking again
     and again costs no call to GitHub. A PR gate counts from the SHIP verdict on its head commit:
-    that is when the office starts to wait on the CEO."""
-    told = [describe(g) for gates, describe, _ in (_diagnosis(db_path), _epic(db_path), _lesson(db_path)) for g in gates]
-    return told + [f"PR gate: #{pr} has a SHIP verdict for head commit {head[:8]}" for pr, head in shipped(db_path)]
+    that is when the office starts to wait on the CEO.
+
+    Keyed by the gate's opening, so a gate that closed and opened again is another one."""
+    paused = pauses(db_path)
+    kinds = (_diagnosis(db_path), _epic(db_path), _lesson(db_path))
+    told = {(text := describe(g), paused.get(g["id"])): text for gates, describe, _ in kinds for g in gates}
+    return told | {
+        (pr, head): f"PR gate: #{pr} has a SHIP verdict for head commit {head[:8]}" for pr, head in shipped(db_path)
+    }
 
 
 def watch_gates(db_path: Path, poll: float = 0.5) -> Iterator[str]:
@@ -178,8 +201,8 @@ def watch_gates(db_path: Path, poll: float = 0.5) -> Iterator[str]:
             now = waiting(db_path)
         except sqlite3.Error:  # the database is busy: ask again
             continue
-        yield from (gate for gate in now if gate not in known)
-        known = set(now)  # a gate that closed is news when it opens again
+        yield from (told for opening, told in now.items() if opening not in known)
+        known = set(now)
 
 
 def advance_to_learning(db_path: Path, gh: Gh = run_gh) -> None:

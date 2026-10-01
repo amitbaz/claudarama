@@ -175,13 +175,14 @@ def create_mcp_server(
         return {"ok": True}
 
     @server.tool()
-    def grant(mandate: str) -> dict:
-        """Grant a mandate. Owner token only."""
+    def grant(mandate: str, ticket: str, investigator: str = "researcher") -> dict:
+        """Grant a mandate, naming its investigation ticket and its investigating Role, whose turn
+        on that ticket is queued. Owner token only."""
         authenticate(db_path, token, owner_only=True)
-        grant_mandate(db_path, mandate)
+        grant_mandate(db_path, mandate, ticket, investigator)
         if gh:
             sync(db_path, gh)
-        return {"ok": True, "mandate": mandate}
+        return {"ok": True, "mandate": mandate, "ticket": ticket, "investigator": investigator}
 
     @server.tool()
     def list_gates() -> dict:
@@ -190,9 +191,10 @@ def create_mcp_server(
         return {"gates": [{"gate": g["gate"], "shows": g["shows"]} for g in open_gates(db_path, gh)]}
 
     @server.tool()
-    def answer_gate(gate: str, answer: str) -> dict:
+    def answer_gate(gate: str, answer: str, reason: str = "") -> dict:
         """Give the CEO's answer at a gate named by `list_gates`: YES, NO or DISCUSS. Owner token only.
 
+        A NO needs the CEO's one-line reason: it goes to whoever produced the work, who is woken with it.
         DISCUSS leaves the gate open: talk it through with the CEO, then call again with their YES or NO."""
         authenticate(db_path, token, owner_only=True)
         answer = answer.strip().upper()
@@ -202,7 +204,7 @@ def create_mcp_server(
         if gate not in waiting:
             raise ValueError(f"no open gate {gate!r}; the open gates are: {', '.join(waiting) or 'none'}")
         if answer != "DISCUSS":
-            waiting[gate]["resolve"](answer == "YES")
+            waiting[gate]["resolve"](answer == "YES", reason)
             if gate.startswith("pr:"):
                 advance_to_learning(db_path, gh)  # a merged PR may have closed a mandate's last ticket
         return {"ok": True, "gate": gate, "answer": answer, "open": answer == "DISCUSS"}

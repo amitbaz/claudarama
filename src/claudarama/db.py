@@ -81,8 +81,11 @@ CREATE TABLE IF NOT EXISTS mandates (
     status TEXT NOT NULL DEFAULT 'INVESTIGATING'
         CHECK (status IN ('PROPOSED', 'INVESTIGATING', 'PLANNING', 'EXECUTING', 'LEARNING', 'CLOSED')),
     blocked_on_ceo INTEGER NOT NULL DEFAULT 0,
+    pauses INTEGER NOT NULL DEFAULT 0,  -- how many times it has paused at a gate
     diagnosis_path TEXT,
-    lesson_path TEXT
+    lesson_path TEXT,
+    investigator TEXT NOT NULL DEFAULT 'researcher',  -- the investigating Role
+    investigation_ticket TEXT  -- its thread carries the mandate's own work: Diagnosis, Epic and Retro
 );
 
 CREATE TABLE IF NOT EXISTS tickets (
@@ -202,8 +205,9 @@ def init_db(db_path: Path) -> None:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(mandates)")}
         for col, decl in (
             ("status", "TEXT NOT NULL DEFAULT 'INVESTIGATING'"),
-            ("blocked_on_ceo", "INTEGER NOT NULL DEFAULT 0"),
+            ("blocked_on_ceo", "INTEGER NOT NULL DEFAULT 0"), ("pauses", "INTEGER NOT NULL DEFAULT 0"),
             ("diagnosis_path", "TEXT"), ("lesson_path", "TEXT"),
+            ("investigator", "TEXT NOT NULL DEFAULT 'researcher'"), ("investigation_ticket", "TEXT"),
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE mandates ADD COLUMN {col} {decl}")
@@ -383,10 +387,28 @@ def save_turn_usage(db_path: Path, turn_id: str, usage: dict, model: str | None 
         )
 
 
-def grant_mandate(db_path: Path, mandate_id: str) -> None:
-    """Record the CEO's grant of a mandate. Granting twice is harmless."""
+def grant_mandate(db_path: Path, mandate_id: str, ticket: str | None = None, investigator: str = "researcher") -> None:
+    """Record the CEO's grant of a mandate and wake its investigating Role on its investigation *ticket*.
+
+    Granting twice is harmless: the second grant changes nothing and wakes nobody.
+    """
+    if investigator not in CAST:
+        raise ValueError(f"unknown Role {investigator!r}; the Roles are: {', '.join(map(shown, CAST))}")
     with sqlite3.connect(db_path) as conn:
-        conn.execute("INSERT OR IGNORE INTO mandates (id) VALUES (?)", (mandate_id,))
+        new = conn.execute(
+            "INSERT OR IGNORE INTO mandates (id, investigator, investigation_ticket) VALUES (?, ?, ?)",
+            (mandate_id, investigator, ticket),
+        ).rowcount
+    if new and ticket:
+        register_ticket(db_path, ticket, mandate_id)
+        queue_turn(db_path, investigator, thread=thread_key(ticket, None))
+
+
+def list_turns(db_path: Path) -> list[dict]:
+    """Every turn with its Person and thread, in the order they were queued."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        return [dict(r) for r in conn.execute("SELECT id, person_id, thread FROM turns ORDER BY rowid")]
 
 
 def mandate_states(db_path: Path) -> list[dict]:
@@ -397,11 +419,18 @@ def mandate_states(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def pauses(db_path: Path) -> dict[str, int]:
+    """For each mandate waiting on the CEO, how many times it has paused at a gate. A gate that
+    closes and opens again shows the same, and this tells the two apart."""
+    with sqlite3.connect(db_path) as conn:
+        return dict(conn.execute("SELECT id, pauses FROM mandates WHERE blocked_on_ceo = 1"))
+
+
 def submit_diagnosis(db_path: Path, mandate_id: str, diagnosis_path: str) -> None:
     """Move an INVESTIGATING mandate to PLANNING and pause it for the CEO's Diagnosis gate."""
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "UPDATE mandates SET status = 'PLANNING', blocked_on_ceo = 1, diagnosis_path = ? "
+            "UPDATE mandates SET status = 'PLANNING', blocked_on_ceo = 1, pauses = pauses + 1, diagnosis_path = ? "
             "WHERE id = ? AND status = 'INVESTIGATING'",
             (diagnosis_path, mandate_id),
         )
@@ -420,14 +449,52 @@ def diagnosis_gates(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def resolve_diagnosis_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
-    """YES unblocks the mandate to plan; NO sends it back to INVESTIGATING, unblocked."""
+def one_line(reason: str) -> str:
+    """The CEO's reason for a NO, on one line. A NO without one is refused."""
+    reason = " ".join(reason.split())
+    if not reason:
+        raise ValueError("a NO needs a one-line reason")
+    return reason
+
+
+def wake(db_path: Path, role: str, ticket: str, no: str | None = None) -> None:
+    """Queue *role*'s turn on *ticket*'s thread. *no* is the gate the CEO answered NO at and the
+    reason: it joins that thread first, so the turn's brief carries it."""
+    if no:
+        store_message(db_path, "ceo", role, "NO", no, ticket=ticket)
+    queue_turn(db_path, role, thread=thread_key(ticket, None))
+
+
+def ticket_author(db_path: Path, ticket: str) -> str | None:
+    """The Role that produced the work on *ticket*, or None when nobody worked on it."""
+    # ponytail: the first Person woken on the ticket; read the ticket's own Role once tickets name one (#90).
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
+        row = conn.execute(
+            "SELECT person_id FROM turns WHERE thread = ? ORDER BY rowid LIMIT 1", (thread_key(ticket, None),)).fetchone()
+    return row[0] if row else None
+
+
+def _wake_on_investigation_ticket(db_path: Path, mandate_id: str, role: str | None, no: str | None = None) -> None:
+    """``wake`` on the mandate's investigation ticket; with no *role*, the investigating Role."""
+    with sqlite3.connect(db_path) as conn:
+        investigator, ticket = conn.execute(
+            "SELECT investigator, investigation_ticket FROM mandates WHERE id = ?", (mandate_id,)).fetchone()
+    if ticket:  # a mandate granted before grants named an investigation ticket has none
+        wake(db_path, role or investigator, ticket, no)
+
+
+def resolve_diagnosis_gate(db_path: Path, mandate_id: str, approved: bool, reason: str = "") -> None:
+    """YES unblocks the mandate to plan and wakes the pm; NO sends it back to INVESTIGATING,
+    unblocked, and wakes the investigating Role with the CEO's *reason*."""
+    no = None if approved else f"Diagnosis gate: {one_line(reason)}"
+    with sqlite3.connect(db_path) as conn:
+        resolved = conn.execute(
             "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
             "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'PLANNING'",
             ("PLANNING" if approved else "INVESTIGATING", mandate_id),
-        )
+        ).rowcount
+    if resolved:
+        _wake_on_investigation_ticket(db_path, mandate_id, "pm" if approved else None, no)
 
 
 def submit_epic(db_path: Path, mandate_id: str, tickets: list[str]) -> None:
@@ -436,7 +503,7 @@ def submit_epic(db_path: Path, mandate_id: str, tickets: list[str]) -> None:
         raise ValueError("an Epic needs at least one ticket")
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "UPDATE mandates SET status = 'EXECUTING', blocked_on_ceo = 1 "
+            "UPDATE mandates SET status = 'EXECUTING', blocked_on_ceo = 1, pauses = pauses + 1 "
             "WHERE id = ? AND status = 'PLANNING' AND blocked_on_ceo = 0",
             (mandate_id,),
         )
@@ -466,8 +533,10 @@ def epic_gates(db_path: Path) -> list[dict]:
         ]
 
 
-def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
-    """YES unblocks the mandate to execute; NO discards the drafted tickets and returns it to PLANNING."""
+def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool, reason: str = "") -> None:
+    """YES unblocks the mandate to execute; NO discards the drafted tickets, returns it to PLANNING
+    and wakes the pm with the CEO's *reason*."""
+    no = None if approved else f"Epic gate: {one_line(reason)}"
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
             "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
@@ -479,6 +548,8 @@ def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
                 conn.execute("UPDATE tickets SET drafted = 0 WHERE mandate_id = ?", (mandate_id,))
             else:
                 conn.execute("DELETE FROM tickets WHERE mandate_id = ? AND drafted = 1", (mandate_id,))
+    if cur.rowcount and no:
+        _wake_on_investigation_ticket(db_path, mandate_id, "pm", no)
 
 
 def tickets_by_mandate(db_path: Path, status: str) -> dict[str, list[str]]:
@@ -527,7 +598,7 @@ def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str) -> None:
     """Move a LEARNING mandate to CLOSED and pause it for the CEO's Lesson gate."""
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
-            "UPDATE mandates SET status = 'CLOSED', blocked_on_ceo = 1, lesson_path = ? "
+            "UPDATE mandates SET status = 'CLOSED', blocked_on_ceo = 1, pauses = pauses + 1, lesson_path = ? "
             "WHERE id = ? AND status = 'LEARNING' AND blocked_on_ceo = 0",
             (lesson_path, mandate_id),
         )
@@ -546,14 +617,18 @@ def lesson_gates(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def resolve_lesson_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
-    """YES unblocks the mandate, finally CLOSED; NO returns it to LEARNING, unblocked."""
+def resolve_lesson_gate(db_path: Path, mandate_id: str, approved: bool, reason: str = "") -> None:
+    """YES unblocks the mandate, finally CLOSED; NO returns it to LEARNING, unblocked, and wakes
+    the engineering-lead, who wrote the Retro, with the CEO's *reason*."""
+    no = None if approved else f"Lesson gate: {one_line(reason)}"
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
+        resolved = conn.execute(
             "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
             "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'CLOSED'",
             ("CLOSED" if approved else "LEARNING", mandate_id),
-        )
+        ).rowcount
+    if resolved and no:
+        _wake_on_investigation_ticket(db_path, mandate_id, "engineering-lead", no)
 
 
 def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False) -> None:

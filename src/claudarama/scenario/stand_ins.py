@@ -47,6 +47,13 @@ async def claude(state: Path, argv: list[str]) -> None:
             sys.exit(f"no scripted turn is left for the {role}")
         script.write_text(json.dumps(turns[1:]))
         print(f"{role}'s brief:\n" + textwrap.indent(argv[argv.index("-p") + 1], "  | "), flush=True)
+        # The office starts a turn when it wakes it; the turn acts when the walk reaches its step.
+        for _ in range(3000):
+            if (state / turns[0]["go"]).exists():
+                break
+            await asyncio.sleep(0.02)
+        else:
+            sys.exit(f"the walk never reached the {role}'s scripted turn")
         for step in turns[0]["calls"]:
             if "run" in step:
                 done = subprocess.run(step["run"], capture_output=True, text=True)

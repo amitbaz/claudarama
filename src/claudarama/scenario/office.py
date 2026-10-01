@@ -16,7 +16,7 @@ from pathlib import Path
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from claudarama.db import get_owner_token, get_turn, init_db, mandate_states, queue_turn
+from claudarama.db import get_owner_token, get_turn, init_db, list_turns, mandate_states, queue_turn
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.scenario.stand_ins import RESULT, call
 from claudarama.scenario.validator import CeoActionStep, Scenario
@@ -81,14 +81,17 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
     def turns_of(step) -> list[dict]:
         return [{"role": scenario.role, **turn} for turn in getattr(step, "turns", [])]
 
-    # Each Role's scripted turns, in the order the scenario lists them: its stand-in takes the next one.
+    # Each Role's scripted turns, in the order the scenario lists them: its stand-in takes the next one,
+    # and acts on it once the walk reaches the turn's step and leaves its `go` file. The office may
+    # start the turn earlier, at the step that woke it.
     scripts: dict[str, list[dict]] = {}
     for step in scenario.steps:
         for turn in turns_of(step):
             scripts.setdefault(turn["role"], []).append(turn)
     state.mkdir()
     for role, turns in scripts.items():
-        (state / f"{role}.json").write_text(json.dumps(turns))
+        (state / f"{role}.json").write_text(json.dumps([{**turn, "go": f"{role}.{n}.go"} for n, turn in enumerate(turns)]))
+    reached: dict[str, int] = {}  # how many of each Role's scripted turns the walk has reached
 
     def notifications() -> list[str]:
         """What the office has told the CEO on the desktop so far, as the stand-in sink kept it."""
@@ -98,9 +101,10 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
     told: list[str] = []  # the notifications already shown
     discussing: set[str] = set()  # gates the CEO left at DISCUSS: no new notification brings them back
 
-    async def answer(reply: str, ceo: ClientSession) -> None:
-        """The CEO's *reply* at the first gate that is waiting, given inside the Session through the
-        office's owner-only gate tools; any other gate is left for a later step.
+    async def answer(reply: str, reason: str, ceo: ClientSession) -> None:
+        """The CEO's *reply* at the first gate that is waiting, with the *reason* a NO is asked for,
+        given inside the Session through the office's owner-only gate tools; any other gate is left
+        for a later step.
 
         The CEO learns that a gate opened from the office's notification, so the answer waits for one."""
         gates = json.loads((await ceo.call_tool("list_gates", {})).content[0].text)["gates"]
@@ -116,8 +120,11 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             told.extend(new)
             seen.extend(f"Notification: {text}" for text in new)
         seen.append(gate["shows"])
-        answered = await ceo.call_tool("answer_gate", {"gate": gate["gate"], "answer": reply})
+        given = {"gate": gate["gate"], "answer": reply} | ({"reason": reason} if reply == "NO" else {})
+        answered = await ceo.call_tool("answer_gate", given)
         seen.append(f"CEO answers {reply}" + (f" -> REFUSED: {answered.content[0].text}" if answered.isError else ""))
+        if reply == "NO":
+            seen.append(f"CEO's reason: {reason}")
         (discussing.add if reply == "DISCUSS" else discussing.discard)(gate["gate"])
 
     def transcript(turn_id: str) -> str:
@@ -129,24 +136,39 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
         status = get_turn(db, turn_id)["status"]
         return status in ("failed", "refused") or (status == "done" and transcript(turn_id).endswith(RESULT))
 
+    listed: set[str] = set()  # the turns already shown as woken, and those the scenario woke itself
+    woken: dict[tuple, list[str]] = {}  # by Role and thread: the turns the office queued that no scripted turn has taken
+
     async def take(step, ceo: ClientSession) -> None:
         if isinstance(step, CeoActionStep):
             for asked in step.calls:
                 seen.append(await call(ceo, "CEO", asked["tool"], asked.get("args", {})))
             if step.input:
-                await answer(step.input, ceo)
+                await answer(step.input, step.reason, ceo)
         else:
-            # ponytail: the scenario wakes each scripted turn itself; drop this once the office wakes them (#89, #90).
-            woken = [
-                (turn["role"], queue_turn(db, turn["role"], thread=f"ticket:{turn['ticket']}" if "ticket" in turn else None))
-                for turn in turns_of(step)
-            ]
-            await until(lambda: all(ended(turn_id) for _, turn_id in woken), timeout=60)
-            for role, turn_id in woken:
+            taken = []
+            for turn in turns_of(step):
+                thread = f"ticket:{turn['ticket']}" if "ticket" in turn else None
+                if waiting := woken.get((turn["role"], thread)):
+                    turn_id = waiting.pop(0)
+                else:
+                    # ponytail: the scenario wakes a scripted turn the office did not; drop this once the office wakes them all (#90).
+                    turn_id = queue_turn(db, turn["role"], thread=thread)
+                    listed.add(turn_id)
+                taken.append((turn["role"], turn_id))
+                (state / f"{turn['role']}.{reached.get(turn['role'], 0)}.go").touch()
+                reached[turn["role"]] = reached.get(turn["role"], 0) + 1
+            await until(lambda: all(ended(turn_id) for _, turn_id in taken), timeout=60)
+            for role, turn_id in taken:
                 turn = get_turn(db, turn_id)
                 if shown := transcript(turn_id).removesuffix(RESULT).rstrip():
                     seen.append(shown)
                 seen.append(f"{role}'s turn: " + ": ".join(filter(None, (turn["status"], turn["refusal"], turn["error"]))))
+        for turn in list_turns(db):  # the turns the office queued during this step
+            if turn["id"] not in listed:
+                listed.add(turn["id"])
+                woken.setdefault((turn["person_id"], turn["thread"]), []).append(turn["id"])
+                seen.append(f"{turn['person_id']} is woken on {(turn['thread'] or 'no thread').replace(':', ' ', 1)}")
         seen.extend(
             f"Mandate {m['id']!r}: {m['status']}" + (", waiting for the CEO" if m["blocked_on_ceo"] else "")
             for m in mandate_states(db)

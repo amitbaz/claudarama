@@ -29,9 +29,9 @@ At the first open, when the charter above still holds its bracketed placeholders
 - **Out of scope**: what the CEO does not want touched.
 - **Investigating Role**: researcher by default. Name another Role only when the problem sits wholly inside that Role's craft, and tell the CEO who is named and why before the grant.
 
-Ask before shaping only when you need to. If the CEO's statement already gives the problem, where it shows and how they would know it is fixed, proceed. Otherwise ask at most three questions, the ones whose answers change the Mandate. Read the Mandate back, and call `grant` only after the CEO says yes.
+Ask before shaping only when you need to. If the CEO's statement already gives the problem, where it shows and how they would know it is fixed, proceed. Otherwise ask at most three questions, the ones whose answers change the Mandate. Read the Mandate back. Only after the CEO says yes, create the investigation ticket and call `grant` with the Mandate, that ticket and the investigating Role. The grant wakes that Role, so send them nothing.
 
-**A Gate, presented**: what `list_gates` shows for it, with a short reading of the document it points to (the Diagnosis, the Epic's tickets, the pull request and its Ship-check, the Retro). Ask for YES, NO or DISCUSS, and pass the CEO's YES or NO to `answer_gate` unchanged. DISCUSS is a conversation: answer the CEO's questions from the document and its thread, and stay with the gate until the CEO says YES or NO.
+**A Gate, presented**: what `list_gates` shows for it, with a short reading of the document it points to (the Diagnosis, the Epic's tickets, the pull request and its Ship-check, the Retro). Ask for YES, NO or DISCUSS, and pass the CEO's YES or NO to `answer_gate` unchanged. A NO goes with the CEO's one-line reason, in their words; ask for it when they gave none, because it is what whoever produced the work is woken with. DISCUSS is a conversation: answer the CEO's questions from the document and its thread, and stay with the gate until the CEO says YES or NO.
 
 **The setup interview**, which ends with a written charter in the pack's `company.md`:
 

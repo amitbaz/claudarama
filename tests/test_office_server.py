@@ -116,7 +116,7 @@ def test_only_the_owners_server_may_grant_a_mandate(db, tmp_path, serve):
 
     async def as_turn(client):
         return (
-            await client.call_tool("grant", {"mandate": "M1"}),
+            await client.call_tool("grant", {"mandate": "M1", "ticket": "T-0"}),
             await client.call_tool("ticket_ready", {"ticket": "T-1", "mandate": "M1"}),
         )
 
@@ -124,7 +124,7 @@ def test_only_the_owners_server_may_grant_a_mandate(db, tmp_path, serve):
     assert refused.isError and "owner" in refused.content[0].text
     assert ungranted.isError and "not granted" in ungranted.content[0].text
 
-    granted = serve(mcp_config(db, get_owner_token(db)), lambda c: c.call_tool("grant", {"mandate": "M1"}))
+    granted = serve(mcp_config(db, get_owner_token(db)), lambda c: c.call_tool("grant", {"mandate": "M1", "ticket": "T-0"}))
     assert not granted.isError
     # The owner's server opened the office, which took back the turn above as one left running.
     _, turn_config = _turn_config(db, tmp_path)
@@ -153,7 +153,7 @@ def test_a_server_without_a_live_token_refuses_every_call(db, serve, env):
 
     async def script(client):
         return [await client.call_tool(name, args) for name, args in (
-            ("whoami", {}), ("health", {}), ("grant", {"mandate": "M1"}),
+            ("whoami", {}), ("health", {}), ("grant", {"mandate": "M1", "ticket": "T-0"}),
             ("ticket_ready", {"ticket": "T-1", "mandate": "M1"}),
         )]
 

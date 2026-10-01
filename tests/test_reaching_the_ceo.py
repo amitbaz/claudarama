@@ -13,7 +13,7 @@ from claudarama.cli import main
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
     create_turn_token, get_office_db_path, get_queued_turns, get_turn, grant_mandate, init_db,
-    mark_turn_running, queue_turn, submit_diagnosis,
+    mark_turn_running, queue_turn, resolve_diagnosis_gate, submit_diagnosis,
 )
 from claudarama.session import open_ceo_session
 
@@ -88,21 +88,40 @@ def test_the_terminal_door_starts_the_assistant_at_open_and_lets_it_run_the_watc
     assert launch[-3] == "--append-system-prompt" and launch[-1] == "The CEO opened the office."
 
 
-def test_the_watcher_ends_when_a_gate_opens_and_says_which(tmp_path, monkeypatch, capsys):
+@pytest.fixture
+def watched(tmp_path, monkeypatch, capsys):
+    """An office with one Diagnosis already waiting, and `claudarama watch` running in it as the
+    Assistant runs it. Returns the office's database and the watcher."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     db = get_office_db_path()
     init_db(db)
     for mandate in ("Old", "New"):
         grant_mandate(db, mandate)
-    submit_diagnosis(db, "Old", "old.md")  # already waiting when the watcher starts: not news
-
+    submit_diagnosis(db, "Old", "old.md")
     watcher = threading.Thread(target=main, args=(["watch"],), daemon=True)
     watcher.start()
     watcher.join(1.5)
-    assert watcher.is_alive() and capsys.readouterr().out == ""
+    assert watcher.is_alive() and capsys.readouterr().out == ""  # a gate waiting at the start is not news
+    return db, watcher
+
+
+def test_the_watcher_ends_when_a_gate_opens_and_says_which(watched, capsys):
+    db, watcher = watched
+
     submit_diagnosis(db, "New", "new.md")
     watcher.join(10)
 
     assert not watcher.is_alive()
     assert capsys.readouterr().out == "Diagnosis gate: mandate 'New', diagnosis at new.md\n"
+
+
+def test_a_gate_that_closes_and_opens_again_before_the_watcher_looks_is_still_news(watched, capsys):
+    db, watcher = watched
+
+    resolve_diagnosis_gate(db, "Old", False, "Measure the cart too.")
+    submit_diagnosis(db, "Old", "old.md")  # the redo, at the same path
+    watcher.join(10)
+
+    assert not watcher.is_alive()
+    assert capsys.readouterr().out == "Diagnosis gate: mandate 'Old', diagnosis at old.md\n"

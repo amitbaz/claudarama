@@ -104,9 +104,9 @@ def test_gate_lists_only_prs_that_close_office_tickets(db):
     assert asked == [] and gh.mutations() == []
 
 
-def _answer_in_the_session(db, gh, gate, answer):
+def _answer_in_the_session(db, gh, gate, answer, **reason):
     server = create_mcp_server(db_path=db, token=get_owner_token(db), gh=gh)
-    return server._tool_manager.get_tool("answer_gate").fn(gate=gate, answer=answer)
+    return server._tool_manager.get_tool("answer_gate").fn(gate=gate, answer=answer, **reason)
 
 
 def test_inside_the_session_a_yes_without_a_ship_verdict_is_refused_and_nothing_is_merged(db):
@@ -114,6 +114,15 @@ def test_inside_the_session_a_yes_without_a_ship_verdict_is_refused_and_nothing_
     with pytest.raises(PermissionError, match="no SHIP verdict for head commit abc123 of PR #7"):
         _answer_in_the_session(db, gh, "pr:7", "YES")
     assert gh.mutations() == []
+
+
+def test_inside_the_session_a_no_needs_its_reason_and_closes_the_pr_only_with_one(db):
+    gh = FakeGh()
+    with pytest.raises(ValueError, match="a NO needs a one-line reason"):
+        _answer_in_the_session(db, gh, "pr:7", "NO")
+    assert gh.mutations() == []
+    _answer_in_the_session(db, gh, "pr:7", "NO", reason="It still loads every image.")
+    assert [m[:3] for m in gh.mutations()] == [["pr", "close", "7"]]
 
 
 def test_inside_the_session_an_answer_must_be_yes_no_or_discuss_at_a_gate_that_is_open(db):
@@ -183,7 +192,7 @@ def test_lesson_discuss_stays_paused_and_no_sends_it_back_to_learning(learning):
     _submit_lessons(learning)
     assert review_lesson_gates(learning, ask=lambda _: "discuss")
     assert _state(learning) == ("CLOSED", 1)
-    answers = iter(["maybe", "no"])
+    answers = iter(["maybe", "no", "Too vague."])
     review_lesson_gates(learning, ask=lambda _: next(answers))
     assert _state(learning) == ("LEARNING", 0)
     _submit_lessons(learning)  # can resubmit

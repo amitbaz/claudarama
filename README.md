@@ -10,7 +10,7 @@ To understand how Claudarama works, read these four pillars:
 
 1. **[The Vision (`docs/CLAUDARAMA.md`)](docs/CLAUDARAMA.md):** What this plugin aims to achieve and how we prove it works.
 2. **[The Operating Model (`docs/COMPANY.md`)](docs/COMPANY.md):** How the AI company actually functions on a daily basis (the 5-step lifecycle, the roles, and the CEO gates).
-3. **[The Architecture (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md):** The strict separation between the project-agnostic Core plugin and your project-specific Pack, the local daemon, and mechanical gate enforcement.
+3. **[The Architecture (`docs/ARCHITECTURE.md`)](docs/ARCHITECTURE.md):** The strict separation between the project-agnostic Core plugin and your project-specific Pack, the office server, and mechanical gate enforcement.
 4. **[The Vocabulary (`docs/GLOSSARY.md`)](docs/GLOSSARY.md):** The strict dictionary used by both humans and agents in this repository.
 
 ## Developing Claudarama

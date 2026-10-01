@@ -8,13 +8,16 @@ from typing import Callable
 from mcp.server.fastmcp import FastMCP
 
 from claudarama.mirror import Gh, run_gh, sync
+from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.session import DB_ENV, TOKEN_ENV
+from claudarama.supervisor import Supervisor
 
 from claudarama.db import (
     CAST,
     Identity,
     get_office_db_path,
     get_person_by_role,
+    get_project_root,
     grant_mandate,
     init_db,
     mark_turn_done,
@@ -234,9 +237,17 @@ def main() -> None:
             sync(db_path, run_gh)
 
     identity = resolve_token(db_path, token)
-    if identity and identity.is_owner:  # the CEO's Session reconciles, not every turn
-        threading.Thread(target=reconcile, daemon=True).start()
-    server.run()
+    if not (identity and identity.is_owner):  # a turn's server neither reconciles nor runs turns
+        server.run()
+        return
+    threading.Thread(target=reconcile, daemon=True).start()
+    # The CEO's Session runs the office: transcripts stay with the office's state, outside the project.
+    office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns")
+    threading.Thread(target=office.run, daemon=True).start()
+    try:
+        server.run()
+    finally:  # the Session closed
+        office.close()
 
 
 if __name__ == "__main__":

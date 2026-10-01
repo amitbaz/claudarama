@@ -18,7 +18,7 @@ Run `claudarama setup` in the project. It needs `gh` installed and signed in, an
   company/retros/
 ```
 
-A test fails if setup ever writes a key the code does not read.
+A test fails if setup writes a key the settings loader, the allowlist builder or the gate hook does not parse.
 
 ## `company.md`
 The charter and current company goal, loaded first into every brief. It can be a full document or a pointer to the project's existing charter.
@@ -36,7 +36,7 @@ Flat `key: value` lines. Setup writes the first two; the rest are optional and t
 | `limit_fallback_minutes` | 60 | How long to pause when a usage limit gives no reset time. |
 
 ## `stack.yaml`
-The commands specialists may run, under a `commands:` block. Each becomes an allowed Bash rule, with and without arguments. Setup writes the block empty.
+The commands a Turn may run, under a `commands:` block. Each becomes an allowed Bash rule, with and without arguments. Setup writes the block empty.
 ```yaml
 commands:
   test: "npm run test"
@@ -44,7 +44,7 @@ commands:
 ```
 
 ## `gates.yaml`
-Extra commands to deny, under a `deny_rules:` list, added to the Core's own deny rules. Setup writes one rule that keeps turns from switching the `gh` account.
+Extra commands to deny, under a `deny_rules:` list, added to the Core's own deny rules. Setup writes one rule that keeps a Turn from switching the `gh` account.
 ```yaml
 deny_rules:
   - "Bash(npm publish *)"
@@ -58,4 +58,4 @@ Overlays appended to a Role's brief. This is the only place project stack knowle
 Scenario files that `claudarama eval` runs when given no paths.
 
 ## `company/diagnoses/` and `company/retros/`
-Where a Diagnosis and a Retro are kept, one file per Mandate.
+The fixed places for a Diagnosis and a Retro, one file per Mandate.

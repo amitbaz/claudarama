@@ -23,7 +23,7 @@ deny_rules:
 """
 
 DEFAULT_STACK_YAML = """# Claudarama Stack Configuration
-# Specialists may run only the commands listed under commands, e.g.  test: "pytest"
+# A Turn may run only the commands listed under commands, e.g.  test: "pytest"
 commands:
 """
 

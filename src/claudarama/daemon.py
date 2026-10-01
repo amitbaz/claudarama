@@ -245,10 +245,14 @@ def create_mcp_server(
         return {"ok": True, "mandate": mandate, "status": "EXECUTING", "blocked_on_ceo": True, "tickets": tickets}
 
     @server.tool(name="submit_lessons")
-    def submit_lessons_tool(mandate: str, lesson_path: str) -> dict:
-        """Submit the Lessons of a LEARNING mandate: it moves to CLOSED and pauses for the CEO."""
+    def submit_lessons_tool(mandate: str, lesson_path: str, lessons: list[dict] | None = None) -> dict:
+        """Submit the Retro of a LEARNING mandate, at `lesson_path`, together with the Lessons it
+        proposes: it moves to CLOSED and pauses for the CEO, whose YES adopts them.
+
+        `lessons` holds at most three, each {"text": one rule of at most 300 characters, "scope":
+        "company" or the one Role it is for}, such as {"text": "...", "scope": "designer"}."""
         authenticate(db_path, token)
-        submit_lessons(db_path, mandate, lesson_path)
+        submit_lessons(db_path, mandate, lesson_path, lessons)
         return {"ok": True, "mandate": mandate, "status": "CLOSED", "blocked_on_ceo": True}
 
     @server.tool()

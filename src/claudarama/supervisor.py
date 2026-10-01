@@ -26,6 +26,7 @@ from claudarama.mirror import Gh
 from claudarama.session import TOKEN_ENV, follow_github, mcp_config
 from claudarama.worktrees import ticket_worktree
 from claudarama.db import (
+    adopted_lessons,
     ticket_from_thread,
     create_turn_token,
     get_queued_turns,
@@ -319,7 +320,10 @@ class Supervisor:
             working_note = get_working_note(self.db_path, turn["person_id"], ticket)
             turn["model"] = "opus" if is_ticket_hard(self.db_path, ticket) else "sonnet"
 
-        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread, ticket=ticket, working_note=working_note)
+        brief = build_brief(
+            pack_dir=self.pack_dir, role=turn["role"], thread=thread, ticket=ticket, working_note=working_note,
+            lessons=[lesson["text"] for lesson in adopted_lessons(self.db_path, turn["role"])],
+        )
         if turn["branch"]:
             brief += f"\n\nWork on git branch `{turn['branch']}`.\n"
 

@@ -98,13 +98,18 @@
     {"type": "ceo_action", "input": "YES"},
     {"type": "mock_llm_turns", "turns": [
       {"role": "engineering-lead", "ticket": "1", "calls": [
-        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": "company/retros/checkout.md"}}
+        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": "company/retros/checkout.md", "lessons": [
+          {"text": "Be careful with images.", "scope": "company"}
+        ]}}
       ]}
     ]},
     {"type": "ceo_action", "input": "NO", "reason": "The Lesson is too vague to act on."},
     {"type": "mock_llm_turns", "turns": [
       {"role": "engineering-lead", "ticket": "1", "calls": [
-        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": "company/retros/checkout.md"}}
+        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": "company/retros/checkout.md", "lessons": [
+          {"text": "Time a page ten times before calling it slow.", "scope": "company"},
+          {"text": "Check a page with its real images.", "scope": "designer"}
+        ]}}
       ]}
     ]},
     {"type": "ceo_action", "input": "YES"},
@@ -195,8 +200,8 @@
       "Notification: PR gate: #101 has a SHIP verdict for head commit commit-1\\nPR gate: #101 ",
       "Notification: PR gate: #102 has a SHIP verdict for head commit commit-1\\nPR gate: #102 ",
       "Notification: PR gate: #103 has a SHIP verdict for head commit commit-1\\nPR gate: #103 ",
-      "Notification: Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nLesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers NO\\n",
-      "Notification: Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nLesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers YES\\n",
+      "Notification: Lesson gate: mandate 'Speed up checkout', Retro at company/retros/checkout\\.md, Lessons:\\n  - company: Be careful with images\\.\\nLesson gate: mandate 'Speed up checkout', Retro at company/retros/checkout\\.md, Lessons:\\n  - company: Be careful with images\\.\\nCEO answers NO\\n",
+      "Notification: Lesson gate: mandate 'Speed up checkout', Retro at company/retros/checkout\\.md, Lessons:\\n  - company: Time a page ten times before calling it slow\\.\\n  - designer \\(Zoidberg\\): Check a page with its real images\\.\\nLesson gate: mandate 'Speed up checkout', Retro at company/retros/checkout\\.md, Lessons:\\n  - company: Time a page ten times before calling it slow\\.\\n  - designer \\(Zoidberg\\): Check a page with its real images\\.\\nCEO answers YES\\n",
       "pm calls submit_epic .* -> \\{\"ok\": true",
       "pm's turn: done\\nMandate 'Speed up checkout': EXECUTING, waiting for the CEO",
       "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\nCEO answers NO\\nCEO's reason: Cover the cart's images too\\.\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
@@ -218,9 +223,11 @@
       "PR gate: #103 'Smaller cart images' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers YES\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\nThe CEO's checkout is on main; worktrees: ticket-1\\n",
       "engineering-lead calls submit_lessons .* -> \\{\"ok\": true",
       "engineering-lead's turn: done\\nMandate 'Speed up checkout': CLOSED, waiting for the CEO",
-      "Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers NO\\nCEO's reason: The Lesson is too vague to act on\\.\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\n",
+      "Lesson gate: mandate 'Speed up checkout', Retro at company/retros/checkout\\.md, Lessons:\\n  - company: Be careful with images\\.\\nCEO answers NO\\nCEO's reason: The Lesson is too vague to act on\\.\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\n",
       "\\| \\*\\*ceo → engineering-lead \\(Kif\\)\\*\\* \\[NO\\]: Lesson gate: The Lesson is too vague to act on\\.",
-      "Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers YES\\nMandate 'Speed up checkout': CLOSED\\n",
+      "Lesson gate: mandate 'Speed up checkout', Retro at company/retros/checkout\\.md, Lessons:\\n  - company: Time a page ten times before calling it slow\\.\\n  - designer \\(Zoidberg\\): Check a page with its real images\\.\\nCEO answers YES\\nMandate 'Speed up checkout': CLOSED\\n",
+      "\\| ## Lessons\\n\\n  \\| - Time a page ten times before calling it slow\\.\\n\\n  \\| ---\\n\\n  \\| ## Ticket\\n\\n  \\| Working on ticket: 4\\n",
+      "\\| ## Lessons\\n\\n  \\| - Time a page ten times before calling it slow\\.\\n  \\| - Check a page with its real images\\.\\n\\n  \\| ---\\n\\n  \\| ## Ticket\\n\\n  \\| Working on ticket: 5\\n",
       "Epic gate: mandate 'Fix the search', tickets:\\n  - 5: designer \\(Zoidberg\\)\\nCEO answers YES\\ndesigner is woken on ticket 5\\n",
       "designer runs gh pr create .* -> https://github.com/office/project/pull/104\\ndesigner's turn: done\\nengineering-lead is woken on ticket 5\\n",
       "engineering-lead calls record_ship_check .*\"command\": \"pytest\"\\} -> REFUSED: .*a FAIL needs a one-line reason",
@@ -231,6 +238,9 @@
       "\\| \\*\\*engineering-lead \\(Kif\\) → researcher \\(Amy\\)\\*\\* \\[STOPPED\\]: Ticket 5 failed its Ship-check 2 times\\. 1\\) Ship-check of #104: A search for two words still finds nothing\\. 2\\) Ship-check of #105: Two words now match, but the timing is inside the spread\\.",
       "diagnosis at company/diagnoses/search-2.md\\nChallenge by engineering-lead \\(Kif\\): STANDS: The index is the slow part in every run\\.\\nWhat was run: the search timer, ten times\\nCEO answers YES\\npm is woken on ticket 4\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': PLANNING\\n",
       "pm calls submit_epic .*\"6\": \"designer\".* -> \\{\"ok\": true.*\\npm's turn: done\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': EXECUTING, waiting for the CEO\\n"
+    ],
+    "excludes": [
+      "\\| - Be careful with images\\."
     ]
   }
 }

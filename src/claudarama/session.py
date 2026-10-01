@@ -113,7 +113,8 @@ def _epic(db_path: Path):
 def _lesson(db_path: Path):
     return (
         lesson_gates(db_path),
-        lambda g: f"Lesson gate: mandate {g['id']!r}, lessons at {g['lesson_path']}",
+        lambda g: f"Lesson gate: mandate {g['id']!r}, Retro at {g['lesson_path']}, Lessons:\n"
+        + ("\n".join(f"  - {shown(lesson['scope'])}: {lesson['text']}" for lesson in g["lessons"]) or "  none"),
         lambda mandate, ok, reason: resolve_lesson_gate(db_path, mandate, ok, reason),
     )
 

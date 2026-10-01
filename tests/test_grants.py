@@ -23,14 +23,8 @@ def db(tmp_path):
 
 
 def _call(db, token, tool, args):
-    """Call an MCP tool as the holder of *token*, without an HTTP server."""
-    from types import SimpleNamespace
-
-    server = create_mcp_server(db_path=db)
-    ctx = SimpleNamespace(
-        request_context=SimpleNamespace(request=SimpleNamespace(path_params={"token": token}))
-    )
-    return server._tool_manager.get_tool(tool).fn(**args, ctx=ctx)
+    """Call an MCP tool as the holder of *token*, without a server process."""
+    return create_mcp_server(db_path=db, token=token)._tool_manager.get_tool(tool).fn(**args)
 
 
 def _turn_token(db):

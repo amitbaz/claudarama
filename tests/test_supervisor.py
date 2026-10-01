@@ -347,8 +347,8 @@ class TestSupervisor:
         assert turns_run == 0
 
 
-    def test_poll_skips_person_with_running_turn_or_session(self, tmp_path):
-        from claudarama.db import queue_turn, start_session, mark_turn_running
+    def test_poll_skips_person_with_running_turn(self, tmp_path):
+        from claudarama.db import queue_turn, mark_turn_running
         from claudarama.supervisor import Supervisor
 
         db_path, pack, output_dir, mock_script, turn_id = self._setup(tmp_path)
@@ -367,14 +367,6 @@ class TestSupervisor:
             claude_binary="echo",
         )
         # Should not run turn2 because p1 is running turn_id
-        assert sup.poll() == 0
-        
-        # Now mark it done
-        with _connect(db_path) as conn:
-            conn.execute("UPDATE turns SET status = 'done' WHERE id = ?", (turn_id,))
-            
-        # Make p1 have an open session
-        start_session(db_path, "fullstack-engineer")
         assert sup.poll() == 0
 
 
@@ -498,7 +490,7 @@ def test_supervisor_resumes_conversation(tmp_path):
     turn_id = queue_turn(db_path, "fullstack-engineer", thread="ticket:45")
     turn = get_turn(db_path, turn_id)
 
-    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo", host="127.0.0.1", port=8000)
+    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo")
     
     from claudarama.supervisor import load_org_settings
     settings = load_org_settings(tmp_path)
@@ -518,7 +510,7 @@ def test_record_usage_saves_ticket_session(tmp_path):
     turn_id = queue_turn(db_path, "fullstack-engineer", thread="ticket:45")
     turn = get_turn(db_path, turn_id)
 
-    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, host="127.0.0.1", port=8000)
+    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path)
     output_file = tmp_path / "output.jsonl"
     output_file.write_text(json.dumps({"session_id": "sess-new"}))
     
@@ -540,7 +532,7 @@ def test_supervisor_does_not_resume_when_switch_off(tmp_path):
     turn_id = queue_turn(db_path, "fullstack-engineer", thread="ticket:45")
     turn = get_turn(db_path, turn_id)
 
-    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo", host="127.0.0.1", port=8000)
+    supervisor = Supervisor(db_path=db_path, pack_dir=tmp_path, output_dir=tmp_path, claude_binary="echo")
     
     from claudarama.supervisor import load_org_settings
     settings = load_org_settings(tmp_path)

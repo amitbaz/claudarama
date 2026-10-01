@@ -1,6 +1,5 @@
 """The Epic gate: PLANNING to EXECUTING, paused for the CEO (issue #71)."""
 import sqlite3
-from types import SimpleNamespace
 
 import pytest
 
@@ -24,11 +23,9 @@ def db(tmp_path):
 
 
 def _submit(db, tickets=("T1", "T2"), mandate="M1"):
-    ctx = SimpleNamespace(request_context=SimpleNamespace(
-        request=SimpleNamespace(path_params={"token": get_owner_token(db)})))
-    server = create_mcp_server(db_path=db)
+    server = create_mcp_server(db_path=db, token=get_owner_token(db))
     return server._tool_manager.get_tool("submit_epic").fn(
-        mandate=mandate, tickets=list(tickets), ctx=ctx)
+        mandate=mandate, tickets=list(tickets))
 
 
 def _state(db):

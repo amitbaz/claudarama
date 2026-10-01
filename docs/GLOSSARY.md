@@ -65,5 +65,8 @@ A set of drafted tickets for a PLANNING mandate, tied to it in the database and 
 **Epic gate**:
 A Gate where the CEO answers YES, NO or DISCUSS on an Epic, shown with its tickets. YES unblocks the mandate so its tickets can start; NO discards the drafted tickets and returns it to PLANNING; DISCUSS leaves it paused. While paused (`blocked_on_ceo`) the scheduler starts no turns for its tickets.
 
+**Ship-check**:
+The Engineering Lead's independent verification of a Pull Request, logged with `record_ship_check` as a SHIP or FAIL verdict on the PR's head commit, together with the path of a submitted Diagnosis and the command that was run. The merge gate requires a SHIP verdict for the head commit.
+
 **Gate hook**:
 The PreToolUse hook that checks every tool call of a turn against the turn's allowlist and denies what is not on it. It enforces the allowlist; it is not itself a Gate.

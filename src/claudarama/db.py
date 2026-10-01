@@ -157,6 +157,15 @@ CREATE TABLE IF NOT EXISTS pull_requests (  -- each head commit the engineering-
     head_commit TEXT NOT NULL,
     PRIMARY KEY (number, head_commit)
 );
+
+CREATE TABLE IF NOT EXISTS lessons (
+    id INTEGER PRIMARY KEY,
+    text TEXT NOT NULL,    -- one short rule
+    scope TEXT NOT NULL,   -- 'company', or the one Role it is for
+    status TEXT NOT NULL,  -- 'proposed' by a Retro, 'adopted' by the CEO, or 'removed' by the CEO
+    mandate_id TEXT,       -- the Mandate whose Retro proposed it; none when the CEO adopted it directly
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -731,8 +740,35 @@ def start_learning(db_path: Path, mandate_id: str) -> None:
         _wake_on_investigation_ticket(db_path, mandate_id, "engineering-lead")
 
 
-def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str) -> None:
-    """Move a LEARNING mandate to CLOSED and pause it for the CEO's Lesson gate."""
+LESSONS_PER_RETRO = 3
+LESSON_CHARS = 300
+
+
+def _lesson(lesson: dict) -> tuple[str, str]:
+    """A Lesson's text, on one line, and its scope; refused when the text is missing or over the
+    length limit, or the scope is neither the company nor a Role."""
+    # One line: the text is loaded into briefs as written, and a line break could pass for a section of one.
+    text, scope = " ".join(str(lesson.get("text") or "").split()), lesson.get("scope")
+    if not text:
+        raise ValueError("a Lesson needs its text: one short rule")
+    if len(text) > LESSON_CHARS:
+        raise ValueError(f"a Lesson is at most {LESSON_CHARS} characters, not {len(text)}")
+    if scope != "company" and scope not in CAST:
+        raise ValueError(
+            f"a Lesson is scoped to 'company' or to one Role, not {scope!r}; the Roles are: {', '.join(map(shown, CAST))}"
+        )
+    return text, scope
+
+
+def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str, lessons: list[dict] | None = None) -> None:
+    """Move a LEARNING mandate to CLOSED and pause it for the CEO's Lesson gate, with the *lessons*
+    its Retro proposes, each a ``text`` and a ``scope``. They take the place of any it proposed before.
+
+    More than three Lessons, or one outside a Lesson's limits, is refused and changes nothing."""
+    lessons = lessons or []
+    if len(lessons) > LESSONS_PER_RETRO:
+        raise ValueError(f"a Retro proposes at most {LESSONS_PER_RETRO} Lessons, not {len(lessons)}")
+    proposed = [_lesson(lesson) for lesson in lessons]
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
             "UPDATE mandates SET status = 'CLOSED', blocked_on_ceo = 1, pauses = pauses + 1, lesson_path = ? "
@@ -741,22 +777,31 @@ def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str) -> None:
         )
         if cur.rowcount == 0:
             raise ValueError(f"mandate {mandate_id!r} is not LEARNING")
+        conn.execute("DELETE FROM lessons WHERE mandate_id = ? AND status = 'proposed'", (mandate_id,))
+        conn.executemany(
+            "INSERT INTO lessons (text, scope, status, mandate_id) VALUES (?, ?, 'proposed', ?)",
+            [(text, scope, mandate_id) for text, scope in proposed],
+        )
 
 
 def lesson_gates(db_path: Path) -> list[dict]:
-    """Mandates paused at the Lesson gate, awaiting the CEO."""
+    """Mandates paused at the Lesson gate, awaiting the CEO, each with its Retro's path and the
+    ``lessons`` the Retro proposes."""
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT id, lesson_path FROM mandates "
             "WHERE blocked_on_ceo = 1 AND status = 'CLOSED' ORDER BY granted_at, rowid"
         ).fetchall()
-    return [dict(r) for r in rows]
+        return [dict(r) | {"lessons": [dict(lesson) for lesson in conn.execute(
+            "SELECT text, scope FROM lessons WHERE mandate_id = ? AND status = 'proposed' ORDER BY id", (r["id"],)
+        )]} for r in rows]
 
 
 def resolve_lesson_gate(db_path: Path, mandate_id: str, approved: bool, reason: str = "") -> None:
-    """YES unblocks the mandate, finally CLOSED; NO returns it to LEARNING, unblocked, and wakes
-    the engineering-lead, who wrote the Retro, with the CEO's *reason*."""
+    """YES unblocks the mandate, finally CLOSED, and adopts the Lessons its Retro proposes; NO
+    returns it to LEARNING, unblocked, and wakes the engineering-lead, who wrote the Retro, with
+    the CEO's *reason*."""
     no = None if approved else f"Lesson gate: {one_line(reason)}"
     with sqlite3.connect(db_path) as conn:
         resolved = conn.execute(
@@ -764,8 +809,41 @@ def resolve_lesson_gate(db_path: Path, mandate_id: str, approved: bool, reason: 
             "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'CLOSED'",
             ("CLOSED" if approved else "LEARNING", mandate_id),
         ).rowcount
+        if resolved and approved:
+            conn.execute(
+                "UPDATE lessons SET status = 'adopted' WHERE mandate_id = ? AND status = 'proposed'", (mandate_id,))
     if resolved and no:
         _wake_on_investigation_ticket(db_path, mandate_id, "engineering-lead", no)
+
+
+def adopt_lesson(db_path: Path, text: str, scope: str) -> int:
+    """Adopt a Lesson directly, as the CEO does with no Retro, within a Lesson's limits. Returns its number."""
+    text, scope = _lesson({"text": text, "scope": scope})
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "INSERT INTO lessons (text, scope, status) VALUES (?, ?, 'adopted')", (text, scope)).lastrowid
+
+
+def remove_lesson(db_path: Path, lesson: int) -> None:
+    """Remove an adopted Lesson: no later brief loads it."""
+    with sqlite3.connect(db_path) as conn:
+        removed = conn.execute(
+            "UPDATE lessons SET status = 'removed' WHERE id = ? AND status = 'adopted'", (lesson,)).rowcount
+    if not removed:
+        raise ValueError(f"no adopted Lesson {lesson}")
+
+
+def adopted_lessons(db_path: Path, role: str | None = None) -> list[dict]:
+    """The adopted Lessons, oldest first: with *role*, those a brief of that Role loads, scoped to
+    the company or to that Role; without, all of them."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, text, scope, mandate_id FROM lessons "
+            "WHERE status = 'adopted' AND (? IS NULL OR scope IN ('company', ?)) ORDER BY id",
+            (role, role),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False, role: str | None = None) -> None:

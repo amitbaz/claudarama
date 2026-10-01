@@ -134,6 +134,14 @@ def test_the_engineering_leads_brief_ties_ship_to_repeated_runs_and_named_bar_ch
     ]) == []
 
 
+def test_the_engineering_leads_brief_says_how_a_retro_submits_its_lessons_and_their_limits(tmp_path):
+    assert _missing(build_brief(tmp_path, "engineering-lead"), [
+        "pass the lessons to `submit_lessons` as `lessons`",
+        "at most three, each a `text` of at most 300 characters and a `scope` of `company` or one role",
+        "the office refuses more or longer",
+    ]) == []
+
+
 @pytest.mark.parametrize("role", ["engineering-lead", "eval-engineer"])
 def test_a_challenging_roles_brief_names_the_tool_that_records_the_challenge(tmp_path, role):
     assert _missing(build_brief(tmp_path, role), [
@@ -183,4 +191,15 @@ def test_the_assistants_brief_covers_reaching_the_ceo_and_answering_gates_in_the
         # messages addressed to the CEO are shown together at open
         "**messages for the ceo**",
         "together and in full",
+    ]) == []
+
+
+def test_the_assistants_brief_covers_saving_the_ceos_answer_as_a_lesson_and_removing_one(tmp_path):
+    assert _missing(build_brief(tmp_path, "assistant"), [
+        # the CEO's answer to a specialist's question about the project
+        "offer to save the answer as a lesson, scoped to the company or to that specialist's role",
+        "call `adopt_lesson` with the answer as one rule of at most 300 characters",
+        # removing a Lesson
+        "call `list_lessons`",
+        "call `remove_lesson` with its number",
     ]) == []

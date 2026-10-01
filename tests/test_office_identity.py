@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from claudarama.daemon import create_mcp_server
 from claudarama.db import get_office_db_path, get_project_name, init_db
 
 
@@ -74,16 +75,19 @@ def test_office_state_lives_under_home_outside_the_project(tmp_path, home, monke
     repo = make_repo(tmp_path / "shop")
     monkeypatch.chdir(repo)
     db_path = get_office_db_path()
-    assert home in db_path.parents
+    assert db_path == home / ".claudarama" / get_project_name() / "office.db"
     assert repo not in db_path.parents
 
 
 def test_database_and_schema_appear_on_first_use(tmp_path, home, monkeypatch):
     repo = make_repo(tmp_path / "shop")
-    monkeypatch.chdir(repo)
+    sub = repo / "src"
+    sub.mkdir()
+    monkeypatch.chdir(sub)
     db_path = get_office_db_path()
     assert not db_path.exists()
-    init_db(db_path)
+    create_mcp_server()  # opening the office is the only step
+    assert db_path.exists()
     with sqlite3.connect(db_path) as conn:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"people", "turns", "mandates", "tickets"} <= tables

@@ -19,6 +19,7 @@ from claudarama.db import (
     resolve_token,
     store_message,
     submit_diagnosis,
+    submit_epic,
     thread_key,
 )
 
@@ -160,6 +161,13 @@ def create_mcp_server(
         authenticate(db_path, _token_of(ctx))
         submit_diagnosis(db_path, mandate, diagnosis_path)
         return {"ok": True, "mandate": mandate, "status": "PLANNING", "blocked_on_ceo": True}
+
+    @server.tool(name="submit_epic")
+    def submit_epic_tool(mandate: str, tickets: list[str], ctx: Context) -> dict:
+        """Submit an Epic, the drafted tickets of a PLANNING mandate: it moves to EXECUTING and pauses for the CEO."""
+        authenticate(db_path, _token_of(ctx))
+        submit_epic(db_path, mandate, tickets)
+        return {"ok": True, "mandate": mandate, "status": "EXECUTING", "blocked_on_ceo": True, "tickets": tickets}
 
     @server.tool()
     def ticket_ready(ticket: str, mandate: str, ctx: Context, hard: bool = False) -> dict:

@@ -26,13 +26,13 @@ The Ship-check has these sections:
 - **Runs**: each command, the commit it ran on, and each result.
 - **Findings**: one line each, giving severity, file and line, the risk, and the fix.
 - **Bars and expectations**: every change to a bar, a threshold or a test's expectation, named with its old and new value, or "none". A change the ticket did not ask for is a FAIL: a result reached by moving the bar is not a fix.
-- **Verdict**: a single last line, `SHIP` or `FAIL: <one-line reason>`.
+- **Verdict**: a single last line, `SHIP` or `FAIL: <one-line reason>`. Give `record_ship_check` the same reason; the office refuses a FAIL without one.
 
 A SHIP verdict rests on repeated runs that beat the spread. One good run is inside the noise until the other runs agree with it.
 
 **The Challenge**, when you are the challenging Role, recorded with `record_challenge`: STANDS or DISPUTED, with reasons and with what you ran. Regenerate the evidence; do not reason from the author's output.
 
-**The Retro**, a file under the pack's `company/retros/` directory, submitted with `submit_lessons`: where the Mandate went wrong at each NO and each FAIL, why, and the Lessons it proposes, each a short rule scoped to the company or to one Role.
+**The Retro**, a file under the pack's `company/retros/` directory, submitted with `submit_lessons`: where the Mandate went wrong at each NO and each FAIL, why, and the Lessons it proposes, each a short rule scoped to the company or to one Role. You are woken for it on the Mandate's investigation ticket, whose thread carries the CEO's reason for each NO at the Diagnosis, Epic and Lesson gates and each stopped ticket with its FAIL reasons.
 
 ## Who receives it
 

@@ -22,7 +22,8 @@ import threading
 
 from claudarama.brief import build_brief
 from claudarama.gate import OFFICE_ENV, write_turn_settings
-from claudarama.session import TOKEN_ENV, mcp_config
+from claudarama.mirror import Gh
+from claudarama.session import TOKEN_ENV, follow_github, mcp_config
 from claudarama.worktrees import ticket_worktree
 from claudarama.db import (
     ticket_from_thread,
@@ -237,7 +238,9 @@ class Supervisor:
         output_dir: Path,
         claude_binary: str = "claude",
         stall_timeout: float | None = None,
+        gh: Gh | None = None,
     ) -> None:
+        self.gh = gh  # with it, the office follows GitHub as each turn ends
         self.db_path = db_path
         self.pack_dir = pack_dir
         self.output_dir = output_dir
@@ -425,6 +428,14 @@ class Supervisor:
 
             if self._closed.is_set() and outcome != "ok":
                 return  # the Session closed mid-turn: left running, to be queued again at the next open
+
+            if self.gh:
+                # Before the turn is marked ended, so whoever waits on it finds what it set moving:
+                # the engineering-lead woken on the pull request it opened, the Retro on the last ticket it closed.
+                try:
+                    follow_github(self.db_path, self.gh)
+                except Exception as e:  # e.g. the database held by another process; the turn still ends
+                    print(f"claudarama: could not follow GitHub: {e}", file=sys.stderr)
 
             self._record_usage(turn_id, turn, output_file)
 

@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     mandate_id TEXT NOT NULL,
     hard INTEGER NOT NULL DEFAULT 0,
     drafted INTEGER NOT NULL DEFAULT 0,  -- in an Epic awaiting the CEO's approval
+    role TEXT,  -- the Role that does it: named by the Epic, or the investigating Role for an investigation ticket
     FOREIGN KEY(mandate_id) REFERENCES mandates(id)
 );
 
@@ -149,6 +150,12 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     content TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(person_id) REFERENCES people(id)
+);
+
+CREATE TABLE IF NOT EXISTS pull_requests (  -- each head commit the engineering-lead was woken to check
+    number INTEGER NOT NULL,
+    head_commit TEXT NOT NULL,
+    PRIMARY KEY (number, head_commit)
 );
 """
 
@@ -226,8 +233,10 @@ def init_db(db_path: Path) -> None:
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE mandates ADD COLUMN {col} {decl}")
-        if "drafted" not in {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}:
-            conn.execute("ALTER TABLE tickets ADD COLUMN drafted INTEGER NOT NULL DEFAULT 0")
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
+        for col, decl in (("drafted", "INTEGER NOT NULL DEFAULT 0"), ("role", "TEXT")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE tickets ADD COLUMN {col} {decl}")
         cols = {r[1] for r in conn.execute("PRAGMA table_info(verdicts)")}
         for col in ("diagnosis_path", "command"):
             if col not in cols:
@@ -299,7 +308,12 @@ def queue_turn(
 
 
 def get_queued_turns(db_path: Path) -> list[dict]:
-    """Return all turns with status 'queued', oldest first."""
+    """Return the queued turns that may start now, oldest first.
+
+    A turn waits while its Person has one running, and while its ticket's mandate waits on the
+    CEO. While a mandate is INVESTIGATING only its investigation ticket is worked on: a ticket's
+    second FAIL sent it back, and the rest resumes once a revised Diagnosis passes its gate.
+    """
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -309,7 +323,9 @@ def get_queued_turns(db_path: Path) -> list[dict]:
             "  AND t.started_at <= CURRENT_TIMESTAMP "
             "  AND NOT EXISTS (SELECT 1 FROM turns WHERE status = 'running' AND person_id = t.person_id) "
             "  AND NOT EXISTS (SELECT 1 FROM tickets k JOIN mandates m ON m.id = k.mandate_id "
-            "                  WHERE m.blocked_on_ceo = 1 AND t.thread = 'ticket:' || k.id) "
+            # A mandate granted with no investigation ticket holds nothing back: `!=` against NULL is never true.
+            "                  WHERE t.thread = 'ticket:' || k.id AND (m.blocked_on_ceo = 1 OR "
+            "                         (m.status = 'INVESTIGATING' AND k.id != m.investigation_ticket))) "
             "ORDER BY t.started_at ASC"
         ).fetchall()
     return [dict(r) for r in rows]
@@ -432,7 +448,7 @@ def grant_mandate(
             (mandate_id, investigator, challenger, ticket),
         ).rowcount
     if new and ticket:
-        register_ticket(db_path, ticket, mandate_id)
+        register_ticket(db_path, ticket, mandate_id, role=investigator)
         queue_turn(db_path, investigator, thread=thread_key(ticket, None))
 
 
@@ -547,11 +563,11 @@ def diagnosis_gates(db_path: Path) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def one_line(reason: str) -> str:
-    """The CEO's reason for a NO, on one line. A NO without one is refused."""
+def one_line(reason: str, answer: str = "NO") -> str:
+    """The reason for a NO or a FAIL, on one line. One without a reason is refused."""
     reason = " ".join(reason.split())
     if not reason:
-        raise ValueError("a NO needs a one-line reason")
+        raise ValueError(f"a {answer} needs a one-line reason")
     return reason
 
 
@@ -563,12 +579,10 @@ def wake(db_path: Path, role: str, ticket: str, no: str | None = None) -> None:
     queue_turn(db_path, role, thread=thread_key(ticket, None))
 
 
-def ticket_author(db_path: Path, ticket: str) -> str | None:
-    """The Role that produced the work on *ticket*, or None when nobody worked on it."""
-    # ponytail: the first Person woken on the ticket; read the ticket's own Role once tickets name one (#90).
+def ticket_role(db_path: Path, ticket: str) -> str | None:
+    """The Role that does *ticket*, or None when the ticket names none."""
     with sqlite3.connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT person_id FROM turns WHERE thread = ? ORDER BY rowid LIMIT 1", (thread_key(ticket, None),)).fetchone()
+        row = conn.execute("SELECT role FROM tickets WHERE id = ?", (ticket,)).fetchone()
     return row[0] if row else None
 
 
@@ -595,10 +609,18 @@ def resolve_diagnosis_gate(db_path: Path, mandate_id: str, approved: bool, reaso
         _wake_on_investigation_ticket(db_path, mandate_id, "pm" if approved else None, no)
 
 
-def submit_epic(db_path: Path, mandate_id: str, tickets: list[str]) -> None:
-    """Tie drafted tickets to a PLANNING mandate, move it to EXECUTING and pause it for the CEO."""
+def submit_epic(db_path: Path, mandate_id: str, tickets: dict[str, str]) -> None:
+    """Tie drafted *tickets*, each with the Role that will do it, to a PLANNING mandate, move it to
+    EXECUTING and pause it for the CEO. A Role with no role file is refused."""
+    from claudarama.brief import ROLES_DIR  # the brief builder imports this module
+
     if not tickets:
         raise ValueError("an Epic needs at least one ticket")
+    for ticket, role in tickets.items():
+        if role not in CAST or not (ROLES_DIR / f"{role}.md").is_file():
+            raise ValueError(
+                f"ticket {ticket!r} names {role!r}, a Role with no role file; the Roles are: {', '.join(map(shown, CAST))}"
+            )
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
             "UPDATE mandates SET status = 'EXECUTING', blocked_on_ceo = 1, pauses = pauses + 1 "
@@ -609,15 +631,15 @@ def submit_epic(db_path: Path, mandate_id: str, tickets: list[str]) -> None:
             raise ValueError(f"mandate {mandate_id!r} is not PLANNING and unblocked")
         try:
             conn.executemany(
-                "INSERT INTO tickets (id, mandate_id, drafted) VALUES (?, ?, 1)",
-                [(t, mandate_id) for t in tickets],
+                "INSERT INTO tickets (id, mandate_id, drafted, role) VALUES (?, ?, 1, ?)",
+                [(ticket, mandate_id, role) for ticket, role in tickets.items()],
             )
         except sqlite3.IntegrityError as e:  # the with-block rolls the mandate update back
             raise ValueError("a ticket of the Epic already exists") from e
 
 
 def epic_gates(db_path: Path) -> list[dict]:
-    """Mandates paused at the Epic gate, with their drafted tickets, awaiting the CEO."""
+    """Mandates paused at the Epic gate, awaiting the CEO, each with its drafted tickets and their Roles."""
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
@@ -625,16 +647,17 @@ def epic_gates(db_path: Path) -> list[dict]:
             "ORDER BY granted_at, rowid"
         ).fetchall()
         return [
-            {"id": r["id"], "tickets": [t[0] for t in conn.execute(
-                "SELECT id FROM tickets WHERE mandate_id = ? AND drafted = 1 ORDER BY rowid", (r["id"],))]}
+            {"id": r["id"], "tickets": dict(conn.execute(
+                "SELECT id, role FROM tickets WHERE mandate_id = ? AND drafted = 1 ORDER BY rowid", (r["id"],)))}
             for r in rows
         ]
 
 
 def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool, reason: str = "") -> None:
-    """YES unblocks the mandate to execute; NO discards the drafted tickets, returns it to PLANNING
-    and wakes the pm with the CEO's *reason*."""
+    """YES unblocks the mandate to execute and wakes each drafted ticket's Role; NO discards the
+    drafted tickets, returns it to PLANNING and wakes the pm with the CEO's *reason*."""
     no = None if approved else f"Epic gate: {one_line(reason)}"
+    started: dict[str, str] = {}
     with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
             "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
@@ -643,11 +666,15 @@ def resolve_epic_gate(db_path: Path, mandate_id: str, approved: bool, reason: st
         )
         if cur.rowcount:
             if approved:
+                started = dict(conn.execute(
+                    "SELECT id, role FROM tickets WHERE mandate_id = ? AND drafted = 1 ORDER BY rowid", (mandate_id,)))
                 conn.execute("UPDATE tickets SET drafted = 0 WHERE mandate_id = ?", (mandate_id,))
             else:
                 conn.execute("DELETE FROM tickets WHERE mandate_id = ? AND drafted = 1", (mandate_id,))
     if cur.rowcount and no:
         _wake_on_investigation_ticket(db_path, mandate_id, "pm", no)
+    for ticket, role in started.items():
+        wake(db_path, role, ticket)
 
 
 def tickets_by_mandate(db_path: Path, status: str) -> dict[str, list[str]]:
@@ -684,12 +711,24 @@ def shipped(db_path: Path) -> list[tuple[int, str]]:
             "SELECT pull_request, head_commit FROM verdicts WHERE verdict = 'SHIP' ORDER BY rowid").fetchall()
 
 
-def start_learning(db_path: Path, mandate_id: str) -> None:
-    """Move an unblocked EXECUTING mandate to LEARNING: its work is merged."""
+def is_new_head(db_path: Path, pull_request: int, head_commit: str) -> bool:
+    """True the first time the office sees *head_commit* on *pull_request*: the pull request
+    opened, or took a new push."""
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
+        return conn.execute(
+            "INSERT OR IGNORE INTO pull_requests (number, head_commit) VALUES (?, ?)", (pull_request, head_commit)
+        ).rowcount == 1
+
+
+def start_learning(db_path: Path, mandate_id: str) -> None:
+    """Move an unblocked EXECUTING mandate to LEARNING, its work merged, and wake the
+    engineering-lead to write the Retro."""
+    with sqlite3.connect(db_path) as conn:
+        moved = conn.execute(
             "UPDATE mandates SET status = 'LEARNING' "
-            "WHERE id = ? AND status = 'EXECUTING' AND blocked_on_ceo = 0", (mandate_id,))
+            "WHERE id = ? AND status = 'EXECUTING' AND blocked_on_ceo = 0", (mandate_id,)).rowcount
+    if moved:
+        _wake_on_investigation_ticket(db_path, mandate_id, "engineering-lead")
 
 
 def submit_lessons(db_path: Path, mandate_id: str, lesson_path: str) -> None:
@@ -729,15 +768,17 @@ def resolve_lesson_gate(db_path: Path, mandate_id: str, approved: bool, reason: 
         _wake_on_investigation_ticket(db_path, mandate_id, "engineering-lead", no)
 
 
-def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False) -> None:
-    """Put a ticket under a granted mandate; refuses an ungranted one."""
+def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False, role: str | None = None) -> None:
+    """Put a ticket under a granted mandate, with the *role* that does it when one is named;
+    refuses an ungranted one."""
     with sqlite3.connect(db_path) as conn:
         if conn.execute("SELECT 1 FROM mandates WHERE id = ?", (mandate_id,)).fetchone() is None:
             raise PermissionError(f"mandate {mandate_id!r} is not granted")
         conn.execute(
-            "INSERT INTO tickets (id, mandate_id, hard) VALUES (?, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET mandate_id = excluded.mandate_id, hard = excluded.hard",
-            (ticket, mandate_id, int(hard)),
+            "INSERT INTO tickets (id, mandate_id, hard, role) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET mandate_id = excluded.mandate_id, hard = excluded.hard, "
+            "role = coalesce(excluded.role, role)",
+            (ticket, mandate_id, int(hard), role),
         )
 
 
@@ -913,11 +954,14 @@ def get_person_by_role(db_path: Path, role: str) -> dict | None:
 
 def record_verdict(
     db_path: Path, pull_request: int, head_commit: str, reviewer_id: str,
-    verdict: str, diagnosis_path: str, command: str,
-) -> None:
+    verdict: str, diagnosis_path: str, command: str, reason: str = "", ticket: str | None = None,
+) -> str | None:
     """Log a Ship-check verdict for a PR's head commit; a re-run on the same head replaces it.
 
     Only the engineering-lead may record one, so no author approves their own work.
+
+    A FAIL needs its one-line *reason*, which goes to the Role of *ticket*, the ticket the check
+    was made on. The ticket's second FAIL stops it instead: returns what the CEO is to be told.
     """
     if reviewer_id != "engineering-lead":
         raise PermissionError(
@@ -925,6 +969,8 @@ def record_verdict(
         )
     if verdict not in ("SHIP", "FAIL"):
         raise ValueError(f"verdict must be SHIP or FAIL, not {verdict!r}")
+    if verdict == "FAIL":
+        reason = one_line(reason, "FAIL")
     if not diagnosis_path.strip() or not command.strip():
         raise ValueError("a Ship-check needs the Diagnosis path and the command that was run")
     with sqlite3.connect(db_path) as conn:
@@ -937,6 +983,35 @@ def record_verdict(
             "verdict = excluded.verdict, diagnosis_path = excluded.diagnosis_path, command = excluded.command",
             (pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command),
         )
+    if verdict == "FAIL" and ticket and (role := ticket_role(db_path, ticket)):
+        return _fail(db_path, ticket, role, f"Ship-check of #{pull_request}: {reason}")
+    return None
+
+
+def _fail(db_path: Path, ticket: str, role: str, reason: str) -> str | None:
+    """A FAIL on *ticket* joins its thread. The first wakes the ticket's *role* with the reason.
+    From the second on the ticket is stopped: its mandate returns to INVESTIGATING and the
+    investigating Role is woken with every reason so far. Returns what the CEO is told then."""
+    store_message(db_path, "engineering-lead", role, "FAIL", reason, ticket=ticket)
+    # FAILs are counted per ticket as the FAIL messages in its thread.
+    fails = [m["body"] for m in get_thread(db_path, thread_key(ticket, None)) if m["msg_type"] == "FAIL"]
+    if len(fails) < 2:
+        wake(db_path, role, ticket)
+        return None
+    with sqlite3.connect(db_path) as conn:
+        mandate, investigator, investigation_ticket = conn.execute(
+            "SELECT m.id, m.investigator, m.investigation_ticket FROM tickets k JOIN mandates m ON m.id = k.mandate_id "
+            "WHERE k.id = ?", (ticket,)).fetchone()
+        conn.execute(  # a mandate waiting at a gate stays there for the CEO's answer
+            "UPDATE mandates SET status = 'INVESTIGATING' "
+            "WHERE id = ? AND status IN ('PLANNING', 'EXECUTING') AND blocked_on_ceo = 0", (mandate,))
+    failed = f"Ticket {ticket} failed its Ship-check {len(fails)} times"
+    if investigation_ticket:  # a mandate granted before grants named an investigation ticket has none
+        reasons = " ".join(f"{n}) {fail}" for n, fail in enumerate(fails, 1))
+        store_message(db_path, "engineering-lead", investigator, "STOPPED", f"{failed}. {reasons}", ticket=investigation_ticket)
+        wake(db_path, investigator, investigation_ticket)
+    return f"{failed}: mandate {mandate!r} is back with the {shown(investigator)}"
+
 
 def set_working_note(db_path: Path, person_id: str, ticket: str, note: str) -> None:
     with sqlite3.connect(db_path) as conn:

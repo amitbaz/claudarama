@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -16,7 +17,7 @@ from pathlib import Path
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from claudarama.db import get_owner_token, get_turn, init_db, list_turns, mandate_states, queue_turn
+from claudarama.db import get_owner_token, get_turn, init_db, list_turns, mandate_states
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.scenario.stand_ins import RESULT, call
 from claudarama.scenario.validator import CeoActionStep, Scenario
@@ -99,12 +100,15 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
         (state / f"{role}.json").write_text(json.dumps([{**turn, "go": f"{role}.{n}.go"} for n, turn in enumerate(turns)]))
     reached: dict[str, int] = {}  # how many of each Role's scripted turns the walk has reached
 
-    def notifications() -> list[str]:
-        """What the office has told the CEO on the desktop so far, as the stand-in sink kept it."""
+    def notifications(of_gates: bool = True) -> list[str]:
+        """What the office has told the CEO on the desktop so far, as the stand-in sink kept it:
+        the gates that opened, or with *of_gates* false everything else it told."""
         told = state / "notifications"
-        return [json.loads(line) for line in told.read_text().splitlines()] if told.exists() else []
+        every = [json.loads(line) for line in told.read_text().splitlines()] if told.exists() else []
+        return [text for text in every if bool(re.match(r"\w+ gate: ", text)) == of_gates]
 
-    told: list[str] = []  # the notifications already shown
+    told: list[str] = []  # the gate notifications already shown
+    told_besides: list[str] = []  # the other notifications already shown
     discussing: set[str] = set()  # gates the CEO left at DISCUSS: no new notification brings them back
 
     async def answer(reply: str, reason: str, ceo: ClientSession) -> None:
@@ -142,8 +146,11 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
         status = get_turn(db, turn_id)["status"]
         return status in ("failed", "refused") or (status == "done" and transcript(turn_id).endswith(RESULT))
 
-    listed: set[str] = set()  # the turns already shown as woken, and those the scenario woke itself
+    listed: set[str] = set()  # the turns already shown as woken
     woken: dict[tuple, list[str]] = {}  # by Role and thread: the turns the office queued that no scripted turn has taken
+
+    def where(thread: str | None) -> str:
+        return (thread or "no thread").replace(":", " ", 1)
 
     async def take(step, ceo: ClientSession) -> None:
         if isinstance(step, CeoActionStep):
@@ -155,13 +162,9 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             taken = []
             for turn in turns_of(step):
                 thread = f"ticket:{turn['ticket']}" if "ticket" in turn else None
-                if waiting := woken.get((turn["role"], thread)):
-                    turn_id = waiting.pop(0)
-                else:
-                    # ponytail: the scenario wakes a scripted turn the office did not; drop this once the office wakes them all (#90).
-                    turn_id = queue_turn(db, turn["role"], thread=thread)
-                    listed.add(turn_id)
-                taken.append((turn["role"], turn_id))
+                if not (waiting := woken.get((turn["role"], thread))):
+                    raise Stuck(f"the office did not wake the {turn['role']} on {where(thread)}")
+                taken.append((turn["role"], waiting.pop(0)))
                 (state / f"{turn['role']}.{reached.get(turn['role'], 0)}.go").touch()
                 reached[turn["role"]] = reached.get(turn["role"], 0) + 1
             await until(lambda: all(ended(turn_id) for _, turn_id in taken), timeout=60)
@@ -174,7 +177,11 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             if turn["id"] not in listed:
                 listed.add(turn["id"])
                 woken.setdefault((turn["person_id"], turn["thread"]), []).append(turn["id"])
-                seen.append(f"{turn['person_id']} is woken on {(turn['thread'] or 'no thread').replace(':', ' ', 1)}")
+                seen.append(f"{turn['person_id']} is woken on {where(turn['thread'])}")
+        # A gate's notification is shown where the CEO answers it; anything else the office told, here.
+        new = notifications(of_gates=False)[len(told_besides):]
+        told_besides.extend(new)
+        seen.extend(f"Notification: {text}" for text in new)
         seen.extend(
             f"Mandate {m['id']!r}: {m['status']}" + (", waiting for the CEO" if m["blocked_on_ceo"] else "")
             for m in mandate_states(db)
@@ -197,6 +204,11 @@ def run_office(scenario: Scenario) -> tuple[str, str | None]:
     Returns what the office showed, a line per event, and why the walk stopped short when it did.
     """
     seen: list[str] = []
-    with tempfile.TemporaryDirectory() as root:
+    # A walk may end with a turn the office has just woken. Closing the office kills the turn, but
+    # the office server that turn started is its own process: it can still be opening the database
+    # while the directory goes, which must not fail a walk that has already been judged.
+    # ponytail: such a server may leave an empty office.db behind in the temporary directory;
+    # have a turn's server create nothing if that litter matters.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as root:
         stuck = asyncio.run(_walk(scenario, Path(root).resolve(), seen))
     return "\n".join(seen) + "\n", stuck

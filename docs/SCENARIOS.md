@@ -87,7 +87,7 @@ Steps run in order.
 - **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, inside the Session, through the office's owner-only `list_gates` and `answer_gate` tools. A `NO` gives its one-line `reason`. The CEO learns of a gate from the office's notification, so the answer waits for one; a gate left at `DISCUSS` is answered again without a new one. An answer with no gate waiting, or with no notification that it opened, fails the scenario.
 - **`mock_llm_turns`**: each entry of `turns` is one scripted turn, with the `role` that runs it, the `ticket` whose thread wakes it, and its `calls`. A call is one of the office's tools (`tool`, `args`) or a command the turn runs where it works, which is its ticket's worktree (`run`). The turns of one step run side by side; the step ends when each has ended.
 
-The office wakes a Role itself, and after each step the walk shows who it woke. A scripted turn is the turn the office queued for that Role on that ticket; it acts when the walk reaches its step. Where the office queued none, the scenario queues the turn itself and shows no `is woken` line for it.
+The office wakes every Role itself, and after each step the walk shows who it woke. A scripted turn is the turn the office queued for that Role on that ticket; it acts when the walk reaches its step. A scripted turn the office did not wake fails the scenario. The office looks at GitHub when a turn ends, before the turn shows as ended, so a pull request a turn opens or a last ticket it closes wakes the next Role within that turn's step.
 
 The office shows one line per event, and `checks` match against these lines:
 
@@ -103,6 +103,7 @@ CEO calls <tool> <args> -> <answer>
 <role>'s turn: refused: <why the office did not start it>
 <role>'s turn: failed: <the error>
 Notification: <what the office told the CEO when the gate opened>
+Notification: <what else the office told the CEO: a ticket stopped by its second FAIL>
 Diagnosis gate: mandate '<mandate>', diagnosis at <path>
 Challenge by <role> (<name>): <STANDS or DISPUTED>: <the reasons>
 What was run: <what the challenger ran>
@@ -115,9 +116,9 @@ Mandate '<mandate>': <STATUS>, waiting for the CEO
 The CEO's checkout is on <branch>; worktrees: <ticket-1, ticket-2, or none>
 ```
 
-After each step come the turns the office queued during it, then every Mandate's line, so a check can name the step, who it woke and the state it leaves: `"CEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
+After each step come the turns the office queued during it, then what it told the CEO that is not a gate opening (a gate's notification is shown where the CEO answers it), then every Mandate's line, so a check can name the step, who it woke and the state it leaves: `"CEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
 
-`scenarios/loop.json` walks one Mandate through every state from its grant to CLOSED. A change to how the loop moves adds its scripted turns, CEO answers and checks there.
+`scenarios/loop.json` walks one Mandate through every state from its grant to CLOSED, and a second one back to investigation after a ticket's second FAIL. A change to how the loop moves adds its scripted turns, CEO answers and checks there.
 
 ## What CI runs
 

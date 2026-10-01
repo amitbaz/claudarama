@@ -53,12 +53,13 @@ def test_a_ceo_answer_with_no_gate_waiting_fails_the_scenario():
     assert "the CEO answered YES, but no gate was waiting" in _why(result)
 
 
-def test_a_turn_the_office_refuses_to_start_shows_the_reason_instead_of_its_calls():
-    ungranted = [{"type": "mock_llm_turns", "turns": [{"ticket": "7", "calls": [{"tool": "whoami"}]}]}]
+def test_a_scripted_turn_the_office_did_not_wake_fails_the_scenario():
+    unwoken = [{"type": "mock_llm_turns", "turns": [{"ticket": "7", "calls": [{"tool": "whoami"}]}]}]
 
-    result = _walk(ungranted, includes=["researcher's turn: refused: ticket '7' is not under a granted mandate"])
+    result = _walk(unwoken, includes=["^"])
 
-    assert result.passed, _why(result)
+    assert not result.passed
+    assert "the office did not wake the researcher on ticket 7" in _why(result)
     assert "researcher calls" not in result.turn_results[0].person_reply
 
 
@@ -209,6 +210,31 @@ def test_the_grant_names_a_challenging_role_that_is_not_the_investigating_role()
     assert result.passed, _why(result)
 
 
+# --- the loop moves itself: execute and learn (issue #90) ----------------------------
+
+
+def test_a_mandate_moves_to_learning_when_a_turn_closes_its_last_ticket():
+    steps = [
+        M_GRANTED,
+        _on_ticket_1({"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}}),
+        CHALLENGED,
+        {"type": "ceo_action", "input": "YES"},
+        {"type": "mock_llm_turns", "turns": [{"role": "pm", "ticket": "1", "calls": [
+            {"run": ["gh", "issue", "close", "1"]},
+            {"tool": "submit_epic", "args": {"mandate": "M", "tickets": {"2": "designer"}}},
+        ]}]},
+        {"type": "ceo_action", "input": "YES"},
+        {"type": "mock_llm_turns", "turns": [{"role": "designer", "ticket": "2", "calls": [{"run": ["gh", "issue", "close", "2"]}]}]},
+    ]
+
+    result = _walk(steps, includes=[
+        # No CEO answer moved it: the office saw the last ticket closed when the turn ended.
+        "designer's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'M': LEARNING\\n",
+    ])
+
+    assert result.passed, _why(result)
+
+
 @pytest.mark.parametrize("step, problem", [
     ({"type": "mock_llm_turns", "turns": [{"role": "eng", "calls": [{"tool": "whoami"}]}]}, "'eng', which is not a Role"),
     ({"type": "mock_llm_turns", "turns": [{"tikcet": "1", "calls": [{"tool": "whoami"}]}]}, "unrecognized fields: tikcet"),
@@ -226,6 +252,24 @@ def test_a_step_the_office_could_not_carry_out_is_refused_by_the_free_checker(st
 
     assert not checked.valid
     assert problem in "\n".join(checked.errors)
+
+
+def test_company_md_names_who_the_office_wakes_at_each_transition():
+    rows = dict(re.findall(r"^\| (.+?) \| (.+?) \|$", (ROOT / "docs" / "COMPANY.md").read_text(), re.MULTILINE))
+
+    for event, woken in [
+        ("Mandate granted", "The investigating Role"),
+        ("Diagnosis submitted", "The challenging Role"),
+        ("Challenge DISPUTED, first on a Mandate", "The investigating Role, with the reasons"),
+        ("Diagnosis gate YES", "The pm"),
+        ("Epic gate YES", "Each ticket's Role"),
+        ("A Pull Request opens for a ticket, or takes a new push", "The engineering-lead"),
+        ("Ship-check FAIL, first on a ticket", "The ticket's Role, with the reason"),
+        ("Ship-check FAIL, second on a ticket", "The investigating Role, with both reasons"),
+        ("Every ticket of the Mandate closed", "The engineering-lead, to write the Retro"),
+        ("Any Gate NO", "Whoever produced the work, with the CEO's reason"),
+    ]:
+        assert rows.get(event, "").startswith(woken), event
 
 
 def test_scenarios_md_shows_the_format_the_validator_accepts_and_where_scenarios_live():

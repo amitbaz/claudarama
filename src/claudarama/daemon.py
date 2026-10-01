@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
-from claudarama.session import DB_ENV, TOKEN_ENV, advance_to_learning, open_gates, watch_gates
+from claudarama.session import DB_ENV, TOKEN_ENV, advance_to_learning, follow_github, open_gates, watch_gates
 from claudarama.supervisor import Supervisor, notify_ceo
 from claudarama.worktrees import remove_finished_worktrees
 
@@ -235,8 +235,11 @@ def create_mcp_server(
         return {"ok": True, "mandate": mandate, "verdict": verdict}
 
     @server.tool(name="submit_epic")
-    def submit_epic_tool(mandate: str, tickets: list[str]) -> dict:
-        """Submit an Epic, the drafted tickets of a PLANNING mandate: it moves to EXECUTING and pauses for the CEO."""
+    def submit_epic_tool(mandate: str, tickets: dict[str, str]) -> dict:
+        """Submit an Epic, the drafted tickets of a PLANNING mandate: it moves to EXECUTING and pauses for the CEO.
+
+        `tickets` maps each ticket to the Role that will do it, such as {"12": "fullstack-engineer"};
+        a Role with no role file is refused. The CEO's YES wakes each ticket's Role."""
         authenticate(db_path, token)
         submit_epic(db_path, mandate, tickets)
         return {"ok": True, "mandate": mandate, "status": "EXECUTING", "blocked_on_ceo": True, "tickets": tickets}
@@ -264,15 +267,23 @@ def create_mcp_server(
 
     @server.tool()
     def record_ship_check(
-        pull_request: int, head_commit: str, verdict: str, diagnosis_path: str, command: str
+        pull_request: int, head_commit: str, verdict: str, diagnosis_path: str, command: str, reason: str = ""
     ) -> dict:
         """Log a Ship-check verdict (SHIP or FAIL) for a PR's head commit, with the Diagnosis path
         and the verification command you ran. The reviewer is taken from your token; only the
-        engineering-lead's verdict is accepted."""
+        engineering-lead's verdict is accepted.
+
+        A FAIL needs its one-line `reason`: it wakes the Role of the ticket you were woken on. That
+        ticket's second FAIL stops it instead: the mandate returns to INVESTIGATING, the
+        investigating Role is woken with both reasons, and the CEO is notified."""
         from claudarama.db import record_verdict
         identity = authenticate(db_path, token)
         reviewer_id = identity.person_id or "ceo"
-        record_verdict(db_path, pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command)
+        stopped = record_verdict(
+            db_path, pull_request, head_commit, reviewer_id, verdict, diagnosis_path, command, reason, identity.ticket
+        )
+        if stopped:
+            notify_ceo(stopped)
         return {"ok": True, "pull_request": pull_request, "head_commit": head_commit, "verdict": verdict}
 
     @server.tool()
@@ -297,6 +308,7 @@ def main() -> None:
     def reconcile() -> None:  # catches hand-moved issues, and pull requests merged or closed outside the office
         while True:
             remove_finished_worktrees(get_project_root(), db_path, run_gh)  # at open, then every minute
+            follow_github(db_path, run_gh)  # pull requests opened and tickets closed outside a turn
             time.sleep(60)
             sync(db_path, run_gh)
 
@@ -310,7 +322,7 @@ def main() -> None:
         """The CEO's Session runs the office: transcripts stay with the office's state, outside the project."""
         threading.Thread(target=reconcile, daemon=True).start()
         threading.Thread(target=announce, daemon=True).start()
-        office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns")
+        office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns", gh=run_gh)
         offices.append(office)
         threading.Thread(target=office.run, daemon=True).start()
 

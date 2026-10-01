@@ -10,45 +10,63 @@ The CEO sets the direction, defines the goals, and approves major decisions at s
 
 ## 2. The Operating Lifecycle
 
-Work in the company flows through a five-step lifecycle. This ensures that vague problems are transformed into verified solutions without the CEO having to prescribe every ticket.
+Work flows through a five-step loop. A Mandate moves through the states INVESTIGATING, PLANNING, EXECUTING, LEARNING and CLOSED, and pauses at each Gate until the CEO answers YES, NO or DISCUSS. The office notifies the CEO when a Gate opens.
 
-### 1. Trigger (Identify)
-Work begins when a gap is identified between the current state and the company's goals.
-*   **Bottom-up:** A PM or Head of department notices a Key Result (KR) is failing (e.g., "The AI engine's 95% pass rate has dropped to 80%") and proposes an investigation.
-*   **Top-down:** The CEO reports a vague problem to the Assistant during an interactive session (e.g., "The AI engine is failing, get it fixed"). The Assistant synthesizes this into an investigation mandate.
+### 1. Trigger (Mandate)
+Work begins when the CEO tells the Assistant about a problem in a Session.
+*   The Assistant shapes it into a **Mandate**, opens its investigation ticket and names two Roles: the investigating Role, the researcher unless another fits better, and a different challenging Role, the engineering-lead unless another fits better.
+*   **Gate:** The CEO grants the Mandate. The grant wakes the investigating Role on the investigation ticket.
 
 ### 2. Investigate (Diagnosis)
-Before touching code, the team must understand the root cause.
-*   A specialist (e.g., Researcher or Eval Engineer) is assigned to gather evidence.
-*   They produce a formal **Diagnosis Document** (e.g., an ADR or Research Brief) that outlines the evidence (e.g., "The golden set is outdated") and proposes a strategy.
-*   **Gate:** The CEO must approve the Diagnosis Document before planning begins.
+Before touching code, the team must understand the cause.
+*   The investigating Role gathers evidence and submits a **Diagnosis**: the measure it relies on, the rival explanations and what was run to check each, and a recommended strategy.
+*   Submitting it wakes the challenging Role, which tries to refute it by regenerating the evidence and records a **Challenge**: STANDS or DISPUTED, with reasons and with what was run. A Mandate's first DISPUTED returns the Diagnosis to the investigating Role with the reasons; the next submission reaches the CEO with its verdict either way.
+*   **Gate:** The CEO answers at the Diagnosis gate, which opens only once a Challenge is recorded and shows it beside the Diagnosis. YES wakes the pm. NO returns the Mandate to INVESTIGATING and wakes the investigating Role with the CEO's reason.
 
 ### 3. Plan (Epic)
-The approved strategy must be translated into actionable engineering work.
-*   The Product Manager (PM) takes the approved Diagnosis and drafts an **Implementation Plan / Epic**.
-*   This Epic breaks the strategy down into specific, scoped tickets (e.g., "Rewrite 50 golden set items").
-*   **Gate:** The CEO must approve the Epic. This ensures the execution plan matches the approved diagnosis.
+The approved strategy is cut into work.
+*   The pm drafts an **Epic**: a set of tickets, each naming the one Role that will do it. The office refuses a ticket that names a Role with no role file.
+*   **Gate:** The CEO answers at the Epic gate, which shows each ticket with its Role. YES wakes each ticket's Role. NO discards the drafted tickets and wakes the pm with the CEO's reason.
 
-### 4. Execute & Verify (`ship-check`)
-Engineers write the code, but they do not merge their own work blindly.
-*   Engineers execute the tickets in the Epic.
-*   Before the CEO is asked to merge a Pull Request, an Engineering Lead (or Eval Engineer) runs a **`ship-check`**.
-*   The `ship-check` is an independent verification step where the Lead runs fresh evidence (e.g., running the evals locally) to prove the fix satisfies the baseline established in the diagnosis.
-*   **Gate:** The CEO merges the verified Pull Request.
+### 4. Execute and verify (Ship-check)
+Each ticket's Role does the work, and nobody approves their own.
+*   The ticket's Role works on the ticket's own branch and opens a Pull Request that closes the ticket.
+*   The opened Pull Request wakes the engineering-lead, who runs a **Ship-check**: an independent verification that regenerates the evidence, recorded as SHIP or FAIL on the Pull Request's head commit. The office accepts a verdict only from the engineering-lead. A new push to the Pull Request wakes the engineering-lead again.
+*   A FAIL carries a one-line reason and wakes the ticket's Role with it.
+*   A ticket's second FAIL stops the ticket. No further turn is queued for its Role. The Mandate returns to INVESTIGATING, the investigating Role is woken with both reasons, and the CEO is notified. While the Mandate is INVESTIGATING only its investigation ticket is worked on; work on its other tickets resumes once a revised Diagnosis passes the Diagnosis gate, and the pm plans what remains in a new Epic.
+*   **Gate:** The CEO answers at the PR gate. YES merges the Pull Request, but only with a SHIP verdict on its head commit. NO closes it and wakes the ticket's Role with the CEO's reason.
 
 ### 5. Learn (Retro)
-The company must increase its baseline competence over time.
-*   Once the work is merged, the team holds a Retrospective.
-*   They identify why the problem occurred and propose a concrete **Lesson** (e.g., "Always update the golden set when changing a prompt schema").
-*   **Gate:** The CEO approves the Lesson. It is then injected into the server's working memory, automatically guiding all future turns in that product area.
+The company raises its own baseline over time.
+*   When every ticket of the Mandate is closed, the Mandate moves to LEARNING while the office runs, and the engineering-lead is woken to write the **Retro**, which proposes **Lessons**.
+*   **Gate:** The CEO answers at the Lesson gate. YES closes the Mandate. NO returns it to LEARNING and wakes the engineering-lead with the CEO's reason.
+
+### How the loop moves
+
+The office queues the next turn itself at every transition, so no turn has to hand work on. A Role still uses `send` to ask a question or to report blocked work.
+
+| Event | Who is woken |
+|---|---|
+| Mandate granted | The investigating Role, on the investigation ticket |
+| Diagnosis submitted | The challenging Role |
+| Challenge DISPUTED, first on a Mandate | The investigating Role, with the reasons |
+| Diagnosis gate YES | The pm |
+| Epic gate YES | Each ticket's Role |
+| A Pull Request opens for a ticket, or takes a new push | The engineering-lead |
+| Ship-check FAIL, first on a ticket | The ticket's Role, with the reason |
+| Ship-check FAIL, second on a ticket | The investigating Role, with both reasons; the Mandate returns to INVESTIGATING and the CEO is notified |
+| Every ticket of the Mandate closed | The engineering-lead, to write the Retro |
+| Any Gate NO | Whoever produced the work, with the CEO's reason |
+
+The office looks at GitHub for opened Pull Requests and closed tickets each time a turn ends, and once a minute for changes made outside a turn.
 
 ## 3. Roles and Responsibilities
 
-The company relies on specific seats and crafts to execute the lifecycle:
+The office has a fixed cast: one Person for each Role.
 
-*   **CEO (Human):** Sets the charter, grants mandates, approves diagnoses and plans, and merges verified code.
-*   **Assistant:** The CEO's interface to the company. Synthesizes vague requests into structured work.
-*   **Product Manager (PM):** Monitors Key Results, writes Epics, and scopes tickets.
-*   **Head of Research / Eval Engineer:** Investigates root causes, gathers evidence, and writes Diagnosis Documents.
-*   **Engineering Lead:** Performs `ship-check` verifications on completed tickets before they reach the CEO.
-*   **Engineer (Fullstack, Frontend, etc.):** Executes individual tickets and opens Pull Requests.
+*   **CEO (Human):** Sets the charter, grants Mandates and answers at every Gate.
+*   **assistant:** The CEO's interface to the company in a Session. Shapes a vague request into a Mandate.
+*   **researcher** (or another investigating Role, such as the **eval-engineer**): Finds the cause and writes the Diagnosis.
+*   **pm:** Cuts an approved Diagnosis into an Epic and names each ticket's Role.
+*   **fullstack-engineer, frontend-engineer, database-architect, designer, prompt-engineer, eval-engineer:** Each does the tickets that name it and opens their Pull Requests.
+*   **engineering-lead:** Runs the Ship-check on each Pull Request and writes the Retro.

@@ -47,12 +47,13 @@ def test_a_ceo_answer_with_no_gate_waiting_fails_the_scenario():
     assert "the CEO answered YES, but no gate was waiting" in _why(result)
 
 
-def test_a_turn_the_office_refuses_to_start_shows_the_reason_instead_of_its_calls():
-    ungranted = [{"type": "mock_llm_turns", "turns": [{"ticket": "7", "calls": [{"tool": "whoami"}]}]}]
+def test_a_scripted_turn_the_office_did_not_wake_fails_the_scenario():
+    unwoken = [{"type": "mock_llm_turns", "turns": [{"ticket": "7", "calls": [{"tool": "whoami"}]}]}]
 
-    result = _walk(ungranted, includes=["researcher's turn: refused: ticket '7' is not under a granted mandate"])
+    result = _walk(unwoken, includes=["^"])
 
-    assert result.passed, _why(result)
+    assert not result.passed
+    assert "the office did not wake the researcher on ticket 7" in _why(result)
     assert "researcher calls" not in result.turn_results[0].person_reply
 
 
@@ -147,6 +148,30 @@ def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
 
     assert result.passed, _why(result)
     assert "Mandate 'N'" not in result.turn_results[0].person_reply
+
+
+# --- the loop moves itself: execute and learn (issue #90) ----------------------------
+
+
+def test_a_mandate_moves_to_learning_when_a_turn_closes_its_last_ticket():
+    steps = [
+        M_GRANTED,
+        _on_ticket_1({"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}}),
+        {"type": "ceo_action", "input": "YES"},
+        {"type": "mock_llm_turns", "turns": [{"role": "pm", "ticket": "1", "calls": [
+            {"run": ["gh", "issue", "close", "1"]},
+            {"tool": "submit_epic", "args": {"mandate": "M", "tickets": {"2": "designer"}}},
+        ]}]},
+        {"type": "ceo_action", "input": "YES"},
+        {"type": "mock_llm_turns", "turns": [{"role": "designer", "ticket": "2", "calls": [{"run": ["gh", "issue", "close", "2"]}]}]},
+    ]
+
+    result = _walk(steps, includes=[
+        # No CEO answer moved it: the office saw the last ticket closed when the turn ended.
+        "designer's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'M': LEARNING\\n",
+    ])
+
+    assert result.passed, _why(result)
 
 
 @pytest.mark.parametrize("step, problem", [

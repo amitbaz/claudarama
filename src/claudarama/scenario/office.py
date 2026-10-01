@@ -17,7 +17,7 @@ from pathlib import Path
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from claudarama.db import get_owner_token, get_turn, init_db, list_turns, mandate_states, queue_turn
+from claudarama.db import get_owner_token, get_turn, init_db, list_turns, mandate_states
 from claudarama.scaffold import PACK_DIR_NAME
 from claudarama.scenario.stand_ins import RESULT, call
 from claudarama.scenario.validator import CeoActionStep, Scenario
@@ -131,8 +131,11 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
         status = get_turn(db, turn_id)["status"]
         return status in ("failed", "refused") or (status == "done" and transcript(turn_id).endswith(RESULT))
 
-    listed: set[str] = set()  # the turns already shown as woken, and those the scenario woke itself
+    listed: set[str] = set()  # the turns already shown as woken
     woken: dict[tuple, list[str]] = {}  # by Role and thread: the turns the office queued that no scripted turn has taken
+
+    def where(thread: str | None) -> str:
+        return (thread or "no thread").replace(":", " ", 1)
 
     async def take(step, ceo: ClientSession) -> None:
         if isinstance(step, CeoActionStep):
@@ -144,13 +147,9 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             taken = []
             for turn in turns_of(step):
                 thread = f"ticket:{turn['ticket']}" if "ticket" in turn else None
-                if waiting := woken.get((turn["role"], thread)):
-                    turn_id = waiting.pop(0)
-                else:
-                    # ponytail: the scenario wakes a scripted turn the office did not; drop this once the office wakes them all (#90).
-                    turn_id = queue_turn(db, turn["role"], thread=thread)
-                    listed.add(turn_id)
-                taken.append((turn["role"], turn_id))
+                if not (waiting := woken.get((turn["role"], thread))):
+                    raise Stuck(f"the office did not wake the {turn['role']} on {where(thread)}")
+                taken.append((turn["role"], waiting.pop(0)))
                 (state / f"{turn['role']}.{reached.get(turn['role'], 0)}.go").touch()
                 reached[turn["role"]] = reached.get(turn["role"], 0) + 1
             await until(lambda: all(ended(turn_id) for _, turn_id in taken), timeout=60)
@@ -163,7 +162,7 @@ async def _walk(scenario: Scenario, root: Path, seen: list[str]) -> str | None:
             if turn["id"] not in listed:
                 listed.add(turn["id"])
                 woken.setdefault((turn["person_id"], turn["thread"]), []).append(turn["id"])
-                seen.append(f"{turn['person_id']} is woken on {(turn['thread'] or 'no thread').replace(':', ' ', 1)}")
+                seen.append(f"{turn['person_id']} is woken on {where(turn['thread'])}")
         seen.extend(
             f"Mandate {m['id']!r}: {m['status']}" + (", waiting for the CEO" if m["blocked_on_ceo"] else "")
             for m in mandate_states(db)

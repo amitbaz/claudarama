@@ -26,13 +26,14 @@
     {"type": "mock_llm_turns", "turns": [
       {"role": "pm", "ticket": "1", "calls": [
         {"run": ["gh", "issue", "close", "1"]},
-        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": ["2"]}}
+        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": {"2": "copywriter"}}},
+        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": {"2": "fullstack-engineer"}}}
       ]}
     ]},
     {"type": "ceo_action", "input": "NO", "reason": "Cover the cart's images too."},
     {"type": "mock_llm_turns", "turns": [
       {"role": "pm", "ticket": "1", "calls": [
-        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": ["2", "3"]}}
+        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": {"2": "fullstack-engineer", "3": "frontend-engineer"}}}
       ]}
     ]},
     {"type": "ceo_action", "input": "YES"},
@@ -42,10 +43,6 @@
         {"run": ["git", "branch", "--show-current"]},
         {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #2"]},
         {"tool": "record_ship_check", "args": {"pull_request": 101, "head_commit": "commit-101", "verdict": "SHIP", "diagnosis_path": "company/diagnoses/checkout-2.md", "command": "pytest"}}
-      ]},
-      {"role": "frontend-engineer", "ticket": "3", "calls": [
-        {"run": ["pwd"]},
-        {"run": ["git", "branch", "--show-current"]}
       ]}
     ]},
     {"type": "mock_llm_turns", "turns": [
@@ -67,6 +64,8 @@
     {"type": "ceo_action", "input": "YES"},
     {"type": "mock_llm_turns", "turns": [
       {"role": "frontend-engineer", "ticket": "3", "calls": [
+        {"run": ["pwd"]},
+        {"run": ["git", "branch", "--show-current"]},
         {"run": ["gh", "pr", "create", "--title", "Smaller cart images", "--body", "Closes #3"]}
       ]}
     ]},
@@ -77,7 +76,7 @@
     ]},
     {"type": "ceo_action", "input": "YES"},
     {"type": "mock_llm_turns", "turns": [
-      {"role": "engineering-lead", "ticket": "2", "calls": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
         {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": "company/retros/checkout.md"}}
       ]}
     ]},
@@ -103,23 +102,26 @@
       "checkout.md\\nCEO answers NO\\nCEO's reason: The cart is slow, not the payment page\\.\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
       "\\| \\*\\*ceo → researcher \\(Amy\\)\\*\\* \\[NO\\]: Diagnosis gate: The cart is slow, not the payment page\\.",
       "checkout-2.md\\nCEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
+      "pm calls submit_epic .*copywriter.* -> REFUSED: .*'copywriter', a Role with no role file",
       "pm calls submit_epic .* -> \\{\"ok\": true",
       "pm's turn: done\\nMandate 'Speed up checkout': EXECUTING, waiting for the CEO",
-      "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2\\nCEO answers NO\\nCEO's reason: Cover the cart's images too\\.\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
+      "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\nCEO answers NO\\nCEO's reason: Cover the cart's images too\\.\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
       "\\| \\*\\*ceo → pm \\(Hermes\\)\\*\\* \\[NO\\]: Epic gate: Cover the cart's images too\\.",
-      "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2\\n  - 3\\nCEO answers YES\\nMandate 'Speed up checkout': EXECUTING\\n",
+      "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\n  - 3: frontend-engineer \\(Fry\\)\\nCEO answers YES\\nfullstack-engineer is woken on ticket 2\\nfrontend-engineer is woken on ticket 3\\nMandate 'Speed up checkout': EXECUTING\\n",
       "fullstack-engineer runs pwd -> \\S+/office-worktrees/ticket-2\\n",
       "fullstack-engineer runs git branch --show-current -> ticket-2\\n",
       "frontend-engineer runs pwd -> \\S+/office-worktrees/ticket-3\\n",
       "frontend-engineer runs git branch --show-current -> ticket-3\\n",
-      "frontend-engineer's turn: done\\nMandate 'Speed up checkout': EXECUTING\\nThe CEO's checkout is on main; worktrees: ticket-1, ticket-2, ticket-3\\n",
+      "fullstack-engineer's turn: done\\nengineering-lead is woken on ticket 2\\nMandate 'Speed up checkout': EXECUTING\\nThe CEO's checkout is on main; worktrees: ticket-1, ticket-2, ticket-3\\n",
       "fullstack-engineer runs gh pr create .* -> https://github.com/office/project/pull/101",
       "fullstack-engineer calls record_ship_check .* -> REFUSED: .* only from the engineering-lead",
       "engineering-lead calls record_ship_check .* -> \\{\"ok\": true",
       "PR gate: #101 'Faster checkout' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers NO\\nCEO's reason: It still loads every image at full size\\.\\nfullstack-engineer is woken on ticket 2\\nMandate 'Speed up checkout': EXECUTING\\nThe CEO's checkout is on main; worktrees: ticket-1, ticket-2, ticket-3\\n",
       "\\| \\*\\*ceo → fullstack-engineer \\(Bender\\)\\*\\* \\[NO\\]: PR gate: It still loads every image at full size\\.",
+      "fullstack-engineer runs gh pr create .* -> https://github.com/office/project/pull/102\\nfullstack-engineer's turn: done\\nengineering-lead is woken on ticket 2\\n",
       "PR gate: #102 'Faster checkout' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers YES\\nMandate 'Speed up checkout': EXECUTING\\nThe CEO's checkout is on main; worktrees: ticket-1, ticket-3\\n",
-      "PR gate: #103 'Smaller cart images' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers YES\\nMandate 'Speed up checkout': LEARNING\\nThe CEO's checkout is on main; worktrees: ticket-1\\n",
+      "frontend-engineer runs gh pr create .* -> https://github.com/office/project/pull/103\\nfrontend-engineer's turn: done\\nengineering-lead is woken on ticket 3\\n",
+      "PR gate: #103 'Smaller cart images' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers YES\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\nThe CEO's checkout is on main; worktrees: ticket-1\\n",
       "engineering-lead calls submit_lessons .* -> \\{\"ok\": true",
       "engineering-lead's turn: done\\nMandate 'Speed up checkout': CLOSED, waiting for the CEO",
       "Lesson gate: mandate 'Speed up checkout', lessons at company/retros/checkout.md\\nCEO answers NO\\nCEO's reason: The Lesson is too vague to act on\\.\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\n",

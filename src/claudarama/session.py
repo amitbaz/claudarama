@@ -12,6 +12,7 @@ from claudarama.db import (
     get_owner_token,
     get_project_root,
     init_db,
+    is_new_head,
     lesson_gates,
     mandates_of_tickets,
     one_line,
@@ -19,8 +20,9 @@ from claudarama.db import (
     resolve_epic_gate,
     resolve_lesson_gate,
     ship_checked,
+    shown,
     start_learning,
-    ticket_author,
+    ticket_role,
     tickets_by_mandate,
     wake,
 )
@@ -80,10 +82,11 @@ def review_diagnosis_gates(db_path: Path, ask=input) -> bool:
 
 
 def review_epic_gates(db_path: Path, ask=input) -> bool:
-    """Ask about each paused Epic, listing its tickets. True when any is left for discussion."""
+    """Ask about each paused Epic, listing each ticket and its Role. True when any is left for discussion."""
     return _review(
         epic_gates(db_path),
-        lambda g: f"Epic gate: mandate {g['id']!r}, tickets:\n" + "\n".join(f"  - {t}" for t in g["tickets"]),
+        lambda g: f"Epic gate: mandate {g['id']!r}, tickets:\n"
+        + "\n".join(f"  - {ticket}: {shown(role)}" for ticket, role in g["tickets"].items()),
         lambda mandate, ok, reason: resolve_epic_gate(db_path, mandate, ok, reason),
         ask,
     )
@@ -105,7 +108,7 @@ def _open_prs(db_path: Path, gh: Gh) -> list[dict]:
 
 def review_pr_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> bool:
     """Ask about each open PR. YES merges, but only with a SHIP verdict on the head commit;
-    NO closes it and wakes whoever worked on its tickets with the CEO's reason. True when any is
+    NO closes it and wakes the Role of each ticket it closes with the CEO's reason. True when any is
     left for discussion."""
     try:
         prs = {pr["id"]: pr for pr in _open_prs(db_path, gh)}
@@ -123,8 +126,8 @@ def review_pr_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> bool:
             no = f"PR gate: {one_line(reason)}"
             gh(["pr", "close", str(number), "--comment", "Declined by the CEO at the PR gate."])
             for ticket in pr["tickets"]:
-                if author := ticket_author(db_path, ticket):
-                    wake(db_path, author, ticket, no)
+                if role := ticket_role(db_path, ticket):
+                    wake(db_path, role, ticket, no)
         elif not ship_checked(db_path, number, pr["head"]):
             print(f"Blocked: no SHIP verdict for head commit {pr['head'][:8]} of PR #{number}; not merged.")
         else:
@@ -143,6 +146,25 @@ def advance_to_learning(db_path: Path, gh: Gh = run_gh) -> None:
             continue
         if closed:
             start_learning(db_path, mandate)
+
+
+def follow_github(db_path: Path, gh: Gh = run_gh) -> None:
+    """What the office does about GitHub while it runs: wake the engineering-lead on each pull
+    request that opened for a ticket or took a new push, and start the Learn step of each mandate
+    whose tickets are all closed."""
+    # ponytail: asks GitHub for every open PR and every ticket of an EXECUTING mandate each time a
+    # turn ends; remember what is already closed if that gets slow.
+    try:
+        prs = _open_prs(db_path, gh)
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"Cannot look for pull requests: gh failed ({e}).", file=sys.stderr)
+        prs = []
+    for pr in prs:
+        if is_new_head(db_path, pr["id"], pr["head"]):
+            for ticket in pr["tickets"]:
+                if mandates_of_tickets(db_path, [ticket]):  # a pull request may also close tickets that are not the office's
+                    wake(db_path, "engineering-lead", ticket)
+    advance_to_learning(db_path, gh)
 
 
 def review_lesson_gates(db_path: Path, ask=input) -> bool:

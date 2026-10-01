@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
-from claudarama.session import DB_ENV, TOKEN_ENV
+from claudarama.session import DB_ENV, TOKEN_ENV, follow_github
 from claudarama.supervisor import Supervisor
 from claudarama.worktrees import remove_finished_worktrees
 
@@ -192,8 +192,11 @@ def create_mcp_server(
         return {"ok": True, "mandate": mandate, "status": "PLANNING", "blocked_on_ceo": True}
 
     @server.tool(name="submit_epic")
-    def submit_epic_tool(mandate: str, tickets: list[str]) -> dict:
-        """Submit an Epic, the drafted tickets of a PLANNING mandate: it moves to EXECUTING and pauses for the CEO."""
+    def submit_epic_tool(mandate: str, tickets: dict[str, str]) -> dict:
+        """Submit an Epic, the drafted tickets of a PLANNING mandate: it moves to EXECUTING and pauses for the CEO.
+
+        `tickets` maps each ticket to the Role that will do it, such as {"12": "fullstack-engineer"};
+        a Role with no role file is refused. The CEO's YES wakes each ticket's Role."""
         authenticate(db_path, token)
         submit_epic(db_path, mandate, tickets)
         return {"ok": True, "mandate": mandate, "status": "EXECUTING", "blocked_on_ceo": True, "tickets": tickets}
@@ -254,6 +257,7 @@ def main() -> None:
     def reconcile() -> None:  # catches hand-moved issues, and pull requests merged or closed outside the office
         while True:
             remove_finished_worktrees(get_project_root(), db_path, run_gh)  # at open, then every minute
+            follow_github(db_path, run_gh)  # pull requests opened and tickets closed outside a turn
             time.sleep(60)
             sync(db_path, run_gh)
 
@@ -262,7 +266,7 @@ def main() -> None:
     def run_office() -> None:
         """The CEO's Session runs the office: transcripts stay with the office's state, outside the project."""
         threading.Thread(target=reconcile, daemon=True).start()
-        office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns")
+        office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns", gh=run_gh)
         offices.append(office)
         threading.Thread(target=office.run, daemon=True).start()
 

@@ -7,10 +7,10 @@ import pytest
 
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
-    get_owner_token, get_queued_turns, grant_mandate, init_db, queue_turn, record_verdict,
+    get_owner_token, get_queued_turns, grant_mandate, init_db, list_turns, queue_turn, record_verdict,
     register_ticket, submit_diagnosis,
 )
-from claudarama.session import advance_to_learning, review_lesson_gates, review_pr_gates
+from claudarama.session import advance_to_learning, follow_github, review_lesson_gates, review_pr_gates
 
 HEAD = "abc123"
 
@@ -116,6 +116,35 @@ def test_a_paused_mandate_does_not_advance(db):
         conn.execute("UPDATE mandates SET blocked_on_ceo = 1")
     advance_to_learning(db, FakeGh())
     assert _state(db) == ("EXECUTING", 1)
+
+
+# --- the office follows GitHub while it runs (issue #90) ---------------------
+
+
+def _woken(db):
+    return [(t["person_id"], t["thread"]) for t in list_turns(db)]
+
+
+def test_a_pull_request_wakes_the_engineering_lead_once_for_each_head_commit(db):
+    follow_github(db, FakeGh(issue_state="OPEN"))
+    follow_github(db, FakeGh(issue_state="OPEN"))  # the same head commit: nothing new to check
+    assert _woken(db) == [("engineering-lead", "ticket:11")]
+
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE turns SET status = 'done'")
+    # A new push to the same pull request; ticket 99 is not the office's.
+    pushed = [{"number": 7, "title": "Fix it", "headRefOid": "def456",
+               "closingIssuesReferences": [{"number": 11}, {"number": 99}]}]
+    follow_github(db, FakeGh(prs=pushed, issue_state="OPEN"))
+    assert _woken(db) == [("engineering-lead", "ticket:11")] * 2
+
+
+def test_following_github_survives_a_gh_failure(db, capsys):
+    def broken(args):
+        raise subprocess.CalledProcessError(1, "gh")
+    follow_github(db, broken)
+    assert _woken(db) == [] and _state(db) == ("EXECUTING", 0)
+    assert capsys.readouterr().err.count("gh failed") == 2
 
 
 # --- Lesson gate -----------------------------------------------------------

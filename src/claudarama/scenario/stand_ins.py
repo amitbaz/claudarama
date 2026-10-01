@@ -5,6 +5,7 @@ directory> <the arguments the real program was given>``. The state directory hol
 scripted turns (``<role>.json``) and the stand-in GitHub (``gh.json``).
 """
 import asyncio
+import fcntl
 import json
 import os
 import re
@@ -65,7 +66,9 @@ async def claude(state: Path, argv: list[str]) -> None:
 def gh(state: Path, argv: list[str]) -> None:
     """A GitHub of milestones, issues and pull requests, kept in ``gh.json``. It answers what the
     office and its turns ask of ``gh`` and nothing else."""
-    # ponytail: no lock on gh.json; add one when two turns of one step both script gh.
+    # The office asks GitHub while turns change it: one call at a time reads and writes gh.json.
+    lock = open(state / "gh.lock", "w")  # let go when this call ends
+    fcntl.flock(lock, fcntl.LOCK_EX)
     path = state / "gh.json"
     hub = json.loads(path.read_text()) if path.exists() else {"milestones": [], "issues": {}, "prs": []}
 

@@ -64,11 +64,17 @@ With `steps`, the reply the checks read is what a real office showed while the s
         {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "company/diagnoses/checkout.md"}}
       ]}
     ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "STANDS", "reasons": "Ten runs gave the same spread.", "ran": "the page timer, ten times"}}
+      ]}
+    ]},
     {"type": "ceo_action", "input": "NO", "reason": "The cart is slow, not the payment page."}
   ],
   "checks": {
     "includes": [
       "CEO calls grant .*\\nresearcher is woken on ticket 1\\n",
+      "researcher's turn: done\\nengineering-lead is woken on ticket 1\\n",
       "CEO's reason: The cart is slow, not the payment page\\.\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING"
     ]
   }
@@ -78,7 +84,7 @@ With `steps`, the reply the checks read is what a real office showed while the s
 Steps run in order.
 
 - **`ceo_action` with `calls`**: the CEO's Session calls the office's tools with the owner token. Each call names a `tool` and its `args`.
-- **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, through the same code that asks at `claudarama open`. A `NO` gives its one-line `reason`. An answer with no gate waiting fails the scenario.
+- **`ceo_action` with `input`**: the CEO answers `YES`, `NO` or `DISCUSS` at the first gate that is waiting, inside the Session, through the office's owner-only `list_gates` and `answer_gate` tools. A `NO` gives its one-line `reason`. The CEO learns of a gate from the office's notification, so the answer waits for one; a gate left at `DISCUSS` is answered again without a new one. An answer with no gate waiting, or with no notification that it opened, fails the scenario.
 - **`mock_llm_turns`**: each entry of `turns` is one scripted turn, with the `role` that runs it, the `ticket` whose thread wakes it, and its `calls`. A call is one of the office's tools (`tool`, `args`) or a command the turn runs where it works, which is its ticket's worktree (`run`). The turns of one step run side by side; the step ends when each has ended.
 
 The office wakes every Role itself, and after each step the walk shows who it woke. A scripted turn is the turn the office queued for that Role on that ticket; it acts when the walk reaches its step. A scripted turn the office did not wake fails the scenario. The office looks at GitHub when a turn ends, before the turn shows as ended, so a pull request a turn opens or a last ticket it closes wakes the next Role within that turn's step.
@@ -96,9 +102,13 @@ CEO calls <tool> <args> -> <answer>
 <role>'s turn: done
 <role>'s turn: refused: <why the office did not start it>
 <role>'s turn: failed: <the error>
-Notification: <what the office told the CEO on the desktop>
+Notification: <what the office told the CEO when the gate opened>
+Notification: <what else the office told the CEO: a ticket stopped by its second FAIL>
 Diagnosis gate: mandate '<mandate>', diagnosis at <path>
+Challenge by <role> (<name>): <STANDS or DISPUTED>: <the reasons>
+What was run: <what the challenger ran>
 CEO answers YES
+CEO answers YES -> REFUSED: <the server's reason>
 CEO answers NO
 CEO's reason: <the reason>
 Mandate '<mandate>': <STATUS>
@@ -106,7 +116,7 @@ Mandate '<mandate>': <STATUS>, waiting for the CEO
 The CEO's checkout is on <branch>; worktrees: <ticket-1, ticket-2, or none>
 ```
 
-After each step come the turns the office queued during it, then what it told the CEO, then every Mandate's line, so a check can name the step, who it woke and the state it leaves: `"CEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
+After each step come the turns the office queued during it, then what it told the CEO that is not a gate opening (a gate's notification is shown where the CEO answers it), then every Mandate's line, so a check can name the step, who it woke and the state it leaves: `"CEO answers YES\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING"`. The line after them names the branch of the CEO's checkout and the tickets that have a worktree.
 
 `scenarios/loop.json` walks one Mandate through every state from its grant to CLOSED, and a second one back to investigation after a ticket's second FAIL. A change to how the loop moves adds its scripted turns, CEO answers and checks there.
 

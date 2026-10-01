@@ -10,17 +10,18 @@ The CEO sets the direction, defines the goals, and approves major decisions at s
 
 ## 2. The Operating Lifecycle
 
-Work flows through a five-step loop. A Mandate moves through the states INVESTIGATING, PLANNING, EXECUTING, LEARNING and CLOSED, and pauses at each Gate until the CEO answers YES, NO or DISCUSS.
+Work flows through a five-step loop. A Mandate moves through the states INVESTIGATING, PLANNING, EXECUTING, LEARNING and CLOSED, and pauses at each Gate until the CEO answers YES, NO or DISCUSS. The office notifies the CEO when a Gate opens.
 
 ### 1. Trigger (Mandate)
 Work begins when the CEO tells the Assistant about a problem in a Session.
-*   The Assistant shapes it into a **Mandate**, opens its investigation ticket and names the investigating Role, the researcher unless another fits better.
+*   The Assistant shapes it into a **Mandate**, opens its investigation ticket and names two Roles: the investigating Role, the researcher unless another fits better, and a different challenging Role, the engineering-lead unless another fits better.
 *   **Gate:** The CEO grants the Mandate. The grant wakes the investigating Role on the investigation ticket.
 
 ### 2. Investigate (Diagnosis)
 Before touching code, the team must understand the cause.
 *   The investigating Role gathers evidence and submits a **Diagnosis**: the measure it relies on, the rival explanations and what was run to check each, and a recommended strategy.
-*   **Gate:** The CEO answers at the Diagnosis gate. YES wakes the pm. NO returns the Mandate to INVESTIGATING and wakes the investigating Role with the CEO's reason.
+*   Submitting it wakes the challenging Role, which tries to refute it by regenerating the evidence and records a **Challenge**: STANDS or DISPUTED, with reasons and with what was run. A Mandate's first DISPUTED returns the Diagnosis to the investigating Role with the reasons; the next submission reaches the CEO with its verdict either way.
+*   **Gate:** The CEO answers at the Diagnosis gate, which opens only once a Challenge is recorded and shows it beside the Diagnosis. YES wakes the pm. NO returns the Mandate to INVESTIGATING and wakes the investigating Role with the CEO's reason.
 
 ### 3. Plan (Epic)
 The approved strategy is cut into work.
@@ -47,6 +48,8 @@ The office queues the next turn itself at every transition, so no turn has to ha
 | Event | Who is woken |
 |---|---|
 | Mandate granted | The investigating Role, on the investigation ticket |
+| Diagnosis submitted | The challenging Role |
+| Challenge DISPUTED, first on a Mandate | The investigating Role, with the reasons |
 | Diagnosis gate YES | The pm |
 | Epic gate YES | Each ticket's Role |
 | A Pull Request opens for a ticket, or takes a new push | The engineering-lead |

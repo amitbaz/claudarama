@@ -46,6 +46,12 @@ Then, in your project:
 2. `claudarama open` starts Claude Code as the CEO's Session, with the Assistant ready.
 3. `claudarama status` shows what the office has used so far.
 
+### When a gate opens
+
+The office shows a macOS notification each time a gate opens, and the Assistant presents the gate in the Session, where you answer YES, NO or DISCUSS.
+
+To be told on your phone as well, connect Remote Control in the Session (`/remote-control`) and turn on **Push when Claude decides** in `/config`. The Assistant then sends a push when a gate opens while you are away.
+
 ## Foundational Documents
 
 To understand how Claudarama works, read these four pillars:

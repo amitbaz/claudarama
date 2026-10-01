@@ -73,8 +73,10 @@ def test_a_turn_whose_launch_cannot_be_prepared_fails_with_the_reason_instead_of
 
 @pytest.fixture
 def bin_dir(tmp_path):
-    """Stand-ins first on PATH: a ``gh`` that never reaches GitHub. Each test adds its scripted ``claude``."""
+    """Stand-ins first on PATH: a ``gh`` that never reaches GitHub and an ``osascript`` that shows no
+    notification. Each test adds its scripted ``claude``."""
     _script(tmp_path / "bin" / "gh", "exit 1")
+    _script(tmp_path / "bin" / "osascript", "exit 0")
     return tmp_path / "bin"
 
 

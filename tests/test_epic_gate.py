@@ -6,7 +6,7 @@ import pytest
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
     epic_gates, get_owner_token, get_queued_turns, grant_mandate, init_db, list_turns, queue_turn,
-    register_ticket, submit_diagnosis,
+    record_challenge, register_ticket, submit_diagnosis,
     resolve_diagnosis_gate,
 )
 from claudarama.session import review_epic_gates
@@ -18,6 +18,7 @@ def db(tmp_path):
     init_db(path)
     grant_mandate(path, "M1")
     submit_diagnosis(path, "M1", "d.md")
+    record_challenge(path, "M1", "engineering-lead", "STANDS", "Reproduced.", "the check, three times")
     resolve_diagnosis_gate(path, "M1", approved=True)
     return path
 
@@ -57,7 +58,7 @@ def test_epic_refused_outside_planning_or_while_diagnosis_pending_or_empty(db):
     with pytest.raises(ValueError, match="not PLANNING and unblocked"):
         _submit(db)
     grant_mandate(db, "M2")
-    submit_diagnosis(db, "M2", "d2.md")  # still paused at the Diagnosis gate
+    submit_diagnosis(db, "M2", "d2.md")  # not yet past the Diagnosis gate
     with pytest.raises(ValueError, match="not PLANNING and unblocked"):
         _submit(db, tickets=["X"], mandate="M2")
 

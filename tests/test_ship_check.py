@@ -6,7 +6,8 @@ import pytest
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
     create_turn_token, get_owner_token, get_queued_turns, get_thread, get_turn, grant_mandate, init_db,
-    mandate_states, mark_turn_running, queue_turn, record_verdict, resolve_diagnosis_gate, resolve_epic_gate,
+    mandate_states, mark_turn_running, queue_turn, record_challenge, record_verdict, resolve_diagnosis_gate,
+    resolve_epic_gate,
     ship_checked, submit_diagnosis, submit_epic,
 )
 
@@ -95,12 +96,18 @@ def executing(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
     grant_mandate(path, "M1", "1")
-    submit_diagnosis(path, "M1", "docs/diagnoses/m1.md")
+    _diagnose(path, "docs/diagnoses/m1.md")
     resolve_diagnosis_gate(path, "M1", True)
     submit_epic(path, "M1", {"2": "designer", "3": "frontend-engineer"})
     resolve_epic_gate(path, "M1", True)
     _end_turns(path)
     return path
+
+
+def _diagnose(db, path):
+    """A Diagnosis is submitted and its Challenge recorded: the mandate waits at the Diagnosis gate."""
+    submit_diagnosis(db, "M1", path)
+    record_challenge(db, "M1", "engineering-lead", "STANDS", "Reproduced.", "the check, three times")
 
 
 def _end_turns(db):
@@ -143,7 +150,7 @@ def test_a_tickets_second_fail_stops_it_and_wakes_the_investigating_role_with_bo
     assert told == "Ticket 2 failed its Ship-check 2 times: mandate 'M1' is back with the researcher (Amy)"
     assert _status(executing) == "INVESTIGATING"
     assert _waiting(executing) == [("researcher", "ticket:1")]  # no further turn for the designer
-    assert [(m["receiver"], m["msg_type"], m["body"]) for m in get_thread(executing, "ticket:1")] == [(
+    assert [(m["receiver"], m["msg_type"], m["body"]) for m in get_thread(executing, "ticket:1")][-1:] == [(
         "researcher", "STOPPED",
         "Ticket 2 failed its Ship-check 2 times. 1) Ship-check of #7: Still slow. 2) Ship-check of #8: Fast, but inside the spread.",
     )]
@@ -165,6 +172,9 @@ def test_work_on_the_mandates_tickets_waits_until_a_revised_diagnosis_passes_the
 
     _end_turns_of(executing, "researcher")
     submit_diagnosis(executing, "M1", "docs/diagnoses/m1-revised.md")
+    assert _waiting(executing) == [("engineering-lead", "ticket:1")]  # the Challenge, on the investigation ticket
+    _end_turns_of(executing, "engineering-lead")
+    record_challenge(executing, "M1", "engineering-lead", "STANDS", "Reproduced.", "the check, three times")
     assert _waiting(executing) == []  # everything waits on the CEO
     resolve_diagnosis_gate(executing, "M1", True)
     assert set(_waiting(executing)) == {("pm", "ticket:1"), ("frontend-engineer", "ticket:3")}

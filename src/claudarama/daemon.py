@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP
 
 from claudarama.mirror import Gh, run_gh, sync
 from claudarama.scaffold import PACK_DIR_NAME
-from claudarama.session import DB_ENV, TOKEN_ENV, follow_github
+from claudarama.session import DB_ENV, TOKEN_ENV, advance_to_learning, follow_github, open_gates, watch_gates
 from claudarama.supervisor import Supervisor, notify_ceo
 from claudarama.worktrees import remove_finished_worktrees
 
@@ -23,6 +23,7 @@ from claudarama.db import (
     init_db,
     mark_turn_done,
     queue_turn,
+    record_challenge,
     redeem_attach_code,
     register_ticket,
     resolve_token,
@@ -62,7 +63,8 @@ def make_send_tool(db_path: Path) -> Callable:
     ) -> dict:
         """Send a message from the caller to receiver and end the caller's turn.
 
-        The receiver is addressed by Role (*receiver_id*); an unknown Role is refused.
+        The receiver is addressed by Role (*receiver_id*); an unknown Role is refused. The CEO is
+        addressed as ``ceo``: no turn is queued, and the message is shown when the office is next opened.
 
         The sender is the caller's identity, never an argument. The owner
         sends as ``ceo`` and has no turn to end.
@@ -80,9 +82,9 @@ def make_send_tool(db_path: Path) -> Callable:
         """
         thread = thread_key(ticket, topic)  # refuse before touching the DB
         receiver = get_person_by_role(db_path, receiver_id)
-        if receiver is None:
+        if receiver is None and receiver_id != "ceo":
             raise ValueError(
-                f"unknown Role {receiver_id!r}; the Roles are: {', '.join(map(shown, CAST))}"
+                f"unknown Role {receiver_id!r}; the Roles are: {', '.join(map(shown, CAST))}. The CEO is 'ceo'"
             )
         store_message(
             db_path,
@@ -96,7 +98,7 @@ def make_send_tool(db_path: Path) -> Callable:
         if identity.turn_id:
             mark_turn_done(db_path, identity.turn_id)
 
-        if msg_type in ("DONE", "BLOCKED", "QUESTION"):
+        if receiver and msg_type in ("DONE", "BLOCKED", "QUESTION"):
             from claudarama.supervisor import load_org_settings
             settings = load_org_settings(db_path.parent)
             new_turn_id = queue_turn(
@@ -114,11 +116,12 @@ def make_send_tool(db_path: Path) -> Callable:
 
 def create_mcp_server(
     db_path: Path | None = None, token: str | None = None, gh: Gh | None = None,
-    on_attach: Callable[[], None] | None = None,
+    on_attach: Callable[[], None] | None = None, project: Path | None = None,
 ) -> FastMCP:
     """The office server for one caller: every tool call is made as the holder of *token*.
 
-    With *gh*, grants and tickets mirror to GitHub. With *on_attach*, the server was started
+    With *gh*, grants and tickets mirror to GitHub. With *project* (the main checkout), an answer
+    at a gate removes the worktrees of the tickets whose pull requests are merged or closed. With *on_attach*, the server was started
     with no token (the plugin declares it for every session): it creates nothing and refuses
     every call until ``attach`` makes it the owner's, then calls *on_attach*.
     """
@@ -159,7 +162,7 @@ def create_mcp_server(
         ticket: str | None = None,
         topic: str | None = None,
     ) -> dict:
-        """Send a message to a Role (receiver_id) and end your turn. The sender is taken from your token."""
+        """Send a message to a Role (receiver_id), or to the CEO as "ceo", and end your turn. The sender is taken from your token."""
         identity = authenticate(db_path, token)
         return await send(identity, receiver_id, msg_type, body, ticket, topic)
 
@@ -175,21 +178,61 @@ def create_mcp_server(
         return {"ok": True}
 
     @server.tool()
-    def grant(mandate: str, ticket: str, investigator: str = "researcher") -> dict:
-        """Grant a mandate, naming its investigation ticket and its investigating Role, whose turn
-        on that ticket is queued. Owner token only."""
+    def grant(
+        mandate: str, ticket: str, investigator: str = "researcher", challenger: str = "engineering-lead"
+    ) -> dict:
+        """Grant a mandate, naming its investigation ticket, its investigating Role, whose turn on
+        that ticket is queued, and its challenging Role, a different Role that will try to refute
+        the Diagnosis before the CEO sees it. Owner token only."""
         authenticate(db_path, token, owner_only=True)
-        grant_mandate(db_path, mandate, ticket, investigator)
+        grant_mandate(db_path, mandate, ticket, investigator, challenger)
         if gh:
             sync(db_path, gh)
-        return {"ok": True, "mandate": mandate, "ticket": ticket, "investigator": investigator}
+        return {"ok": True, "mandate": mandate, "ticket": ticket, "investigator": investigator, "challenger": challenger}
+
+    @server.tool()
+    def list_gates() -> dict:
+        """The gates waiting for the CEO's answer, in the order of the loop. Owner token only."""
+        authenticate(db_path, token, owner_only=True)
+        return {"gates": [{"gate": g["gate"], "shows": g["shows"]} for g in open_gates(db_path, gh)]}
+
+    @server.tool()
+    def answer_gate(gate: str, answer: str, reason: str = "") -> dict:
+        """Give the CEO's answer at a gate named by `list_gates`: YES, NO or DISCUSS. Owner token only.
+
+        A NO needs the CEO's one-line reason: it goes to whoever produced the work, who is woken with it.
+        DISCUSS leaves the gate open: talk it through with the CEO, then call again with their YES or NO."""
+        authenticate(db_path, token, owner_only=True)
+        answer = answer.strip().upper()
+        if answer not in ("YES", "NO", "DISCUSS"):
+            raise ValueError(f"answer {answer!r} is not YES, NO or DISCUSS")
+        waiting = {g["gate"]: g for g in open_gates(db_path, gh)}
+        if gate not in waiting:
+            raise ValueError(f"no open gate {gate!r}; the open gates are: {', '.join(waiting) or 'none'}")
+        if answer != "DISCUSS":
+            waiting[gate]["resolve"](answer == "YES", reason)
+        if project:  # whenever the CEO is at a gate: of a ticket merged or closed here, or withdrawn by its author
+            remove_finished_worktrees(project, db_path, gh)
+        if answer != "DISCUSS" and gate.startswith("pr:"):
+            advance_to_learning(db_path, gh)  # a merged PR may have closed a mandate's last ticket
+        return {"ok": True, "gate": gate, "answer": answer, "open": answer == "DISCUSS"}
 
     @server.tool(name="submit_diagnosis")
     def submit_diagnosis_tool(mandate: str, diagnosis_path: str) -> dict:
-        """Submit a Diagnosis: the mandate moves to PLANNING and pauses for the CEO."""
+        """Submit a Diagnosis: the mandate's challenging Role is woken to challenge it. It reaches
+        the CEO's Diagnosis gate only once the Challenge is recorded."""
         authenticate(db_path, token)
         submit_diagnosis(db_path, mandate, diagnosis_path)
-        return {"ok": True, "mandate": mandate, "status": "PLANNING", "blocked_on_ceo": True}
+        return {"ok": True, "mandate": mandate, "status": "INVESTIGATING", "blocked_on_ceo": False}
+
+    @server.tool(name="record_challenge")
+    def record_challenge_tool(mandate: str, verdict: str, reasons: str, ran: str) -> dict:
+        """Record your Challenge of a mandate's submitted Diagnosis: STANDS or DISPUTED, with your
+        reasons and what you ran. The challenger is taken from your token; only the mandate's
+        challenging Role is accepted."""
+        identity = authenticate(db_path, token)
+        record_challenge(db_path, mandate, identity.person_id or "ceo", verdict, reasons, ran)
+        return {"ok": True, "mandate": mandate, "verdict": verdict}
 
     @server.tool(name="submit_epic")
     def submit_epic_tool(mandate: str, tickets: dict[str, str]) -> dict:
@@ -271,15 +314,22 @@ def main() -> None:
 
     offices: list[Supervisor] = []
 
+    def announce() -> None:  # the CEO learns of a gate without opening the office to look
+        for gate in watch_gates(db_path):
+            notify_ceo(gate)
+
     def run_office() -> None:
         """The CEO's Session runs the office: transcripts stay with the office's state, outside the project."""
         threading.Thread(target=reconcile, daemon=True).start()
+        threading.Thread(target=announce, daemon=True).start()
         office = Supervisor(db_path, get_project_root() / PACK_DIR_NAME, db_path.parent / "turns", gh=run_gh)
         offices.append(office)
         threading.Thread(target=office.run, daemon=True).start()
 
     # Handed no token, this is the server the plugin declares: it waits for /claudarama:open.
-    server = create_mcp_server(db_path=db_path, token=token, gh=run_gh, on_attach=None if token else run_office)
+    server = create_mcp_server(
+        db_path=db_path, token=token, gh=run_gh, on_attach=None if token else run_office, project=get_project_root(),
+    )
     identity = resolve_token(db_path, token)
     if identity and identity.is_owner:  # a turn's server neither reconciles nor runs turns
         run_office()

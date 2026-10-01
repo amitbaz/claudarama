@@ -34,6 +34,12 @@ def _walk(steps: list[dict], includes: list[str]):
     return evaluate_scenario(checked.scenario)
 
 
+# The Challenge that opens mandate M's Diagnosis gate, and the engineering-lead's turn that records it.
+CHALLENGE_STANDS = {"tool": "record_challenge", "args": {
+    "mandate": "M", "verdict": "STANDS", "reasons": "Five runs gave the same spread.", "ran": "the eval, five times"}}
+CHALLENGED = {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [CHALLENGE_STANDS]}]}
+
+
 def test_the_loop_scenario_walks_a_mandate_from_its_grant_to_closed():
     result = run_scenario_file(ROOT / "scenarios" / "loop.json")
 
@@ -70,11 +76,34 @@ def test_a_turn_that_ends_itself_with_send_still_shows_everything_it_did():
     assert result.passed, _why(result)
 
 
+def test_a_turn_can_neither_list_nor_answer_a_gate():
+    granted = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
+    approves_its_own = {"type": "mock_llm_turns", "turns": [{"ticket": "1", "calls": [
+        {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "d.md"}},
+        {"tool": "list_gates"},
+        {"tool": "answer_gate", "args": {"gate": "diagnosis:M", "answer": "YES"}},
+    ]}]}
+    # The Challenge opens the gate; the challenger cannot answer it either.
+    approves_what_it_challenged = {"type": "mock_llm_turns", "turns": [{"role": "engineering-lead", "ticket": "1", "calls": [
+        CHALLENGE_STANDS,
+        {"tool": "answer_gate", "args": {"gate": "diagnosis:M", "answer": "YES"}},
+    ]}]}
+
+    result = _walk([granted, approves_its_own, approves_what_it_challenged], includes=[
+        "researcher calls list_gates .* -> REFUSED: .*owner-only",
+        "researcher calls answer_gate .* -> REFUSED: .*owner-only",
+        "engineering-lead calls answer_gate .* -> REFUSED: .*owner-only",
+        "engineering-lead's turn: done\\nMandate 'M': PLANNING, waiting for the CEO",
+    ])
+
+    assert result.passed, _why(result)
+
+
 # --- a worktree per ticket (issue #91) ---------------------------------------------
 
 M_GRANTED = {"type": "ceo_action", "calls": [{"tool": "grant", "args": {"mandate": "M", "ticket": "1"}}]}
 # The researcher opens a pull request from the ticket's branch, withdraws it, and submits a Diagnosis.
-# The CEO's DISCUSS then reviews the gates and wakes nobody on the ticket.
+# Once it is challenged, the CEO's DISCUSS reviews the gates and wakes nobody on the ticket.
 WITHDRAWN_PR = [
     {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #1"]},
     {"run": ["gh", "pr", "close", "101"]},
@@ -92,6 +121,7 @@ def test_a_closed_pull_request_takes_the_tickets_worktree_and_leaves_its_branch_
     steps = [
         M_GRANTED,
         _on_ticket_1({"run": commit}, *WITHDRAWN_PR),
+        CHALLENGED,
         {"type": "ceo_action", "input": "DISCUSS"},
         {"type": "ceo_action", "input": "NO", "reason": "Look at the cart."},
         _on_ticket_1({"run": ["git", "log", "-1", "--format=%s on %D"]}),
@@ -107,7 +137,10 @@ def test_a_closed_pull_request_takes_the_tickets_worktree_and_leaves_its_branch_
 
 
 def test_a_worktree_holding_uncommitted_work_stays_when_its_pull_request_closes():
-    steps = [M_GRANTED, _on_ticket_1({"run": ["touch", "uncommitted-work"]}, *WITHDRAWN_PR), {"type": "ceo_action", "input": "DISCUSS"}]
+    steps = [
+        M_GRANTED, _on_ticket_1({"run": ["touch", "uncommitted-work"]}, *WITHDRAWN_PR), CHALLENGED,
+        {"type": "ceo_action", "input": "DISCUSS"},
+    ]
 
     result = _walk(steps, includes=[REVIEWED + "ticket-1\\n"])
 
@@ -137,17 +170,44 @@ def test_the_grant_names_who_investigates_and_a_no_goes_back_to_them():
         {"type": "mock_llm_turns", "turns": [{"role": "eval-engineer", "ticket": "1", "calls": [
             {"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}},
         ]}]},
+        CHALLENGED,
         {"type": "ceo_action", "input": "NO", "reason": "The eval is too noisy to tell."},
     ]
 
     result = _walk(steps, includes=[
         # Granting twice wakes the investigating Role once; a Role the office does not have is refused.
         "REFUSED: .*unknown Role 'detective'.*\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
+        # A submitted Diagnosis wakes the challenging Role; the gate opens once the Challenge is recorded.
+        "eval-engineer's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'M': INVESTIGATING\\n",
+        "engineering-lead calls record_challenge .* -> \\{\"ok\": true.*\\n"
+        "engineering-lead's turn: done\\nMandate 'M': PLANNING, waiting for the CEO\\n",
         "CEO's reason: The eval is too noisy to tell\\.\\neval-engineer is woken on ticket 1\\nMandate 'M': INVESTIGATING\\nThe CEO's checkout .*\\n$",
     ])
 
     assert result.passed, _why(result)
     assert "Mandate 'N'" not in result.turn_results[0].person_reply
+
+
+def test_the_grant_names_a_challenging_role_that_is_not_the_investigating_role():
+    def grant(mandate, ticket, **roles):
+        return {"tool": "grant", "args": {"mandate": mandate, "ticket": ticket, **roles}}
+
+    result = _walk([{"type": "ceo_action", "calls": [
+        grant("M", "1", investigator="eval-engineer", challenger="eval-engineer"),
+        grant("M", "1", investigator="engineering-lead"),  # the default challenger is the engineering-lead
+        grant("M", "1", challenger="detective"),
+        grant("M", "1", investigator="eval-engineer", challenger="researcher"),
+        grant("N", "2"),
+    ]}], includes=[
+        "REFUSED: .*challenging Role must differ from the investigating Role.*\\n"
+        "CEO calls .* -> REFUSED: .*challenging Role must differ.*\\n"
+        "CEO calls .* -> REFUSED: .*unknown Role 'detective'.*\\n"
+        "CEO calls .* -> \\{\"ok\": true.*\"investigator\": \"eval-engineer\", \"challenger\": \"researcher\"\\}\\n"
+        "CEO calls .* -> \\{\"ok\": true.*\"investigator\": \"researcher\", \"challenger\": \"engineering-lead\"\\}\\n"
+        "eval-engineer is woken on ticket 1\\nresearcher is woken on ticket 2\\n",
+    ])
+
+    assert result.passed, _why(result)
 
 
 # --- the loop moves itself: execute and learn (issue #90) ----------------------------
@@ -157,6 +217,7 @@ def test_a_mandate_moves_to_learning_when_a_turn_closes_its_last_ticket():
     steps = [
         M_GRANTED,
         _on_ticket_1({"tool": "submit_diagnosis", "args": {"mandate": "M", "diagnosis_path": "company/diagnoses/m.md"}}),
+        CHALLENGED,
         {"type": "ceo_action", "input": "YES"},
         {"type": "mock_llm_turns", "turns": [{"role": "pm", "ticket": "1", "calls": [
             {"run": ["gh", "issue", "close", "1"]},
@@ -198,6 +259,8 @@ def test_company_md_names_who_the_office_wakes_at_each_transition():
 
     for event, woken in [
         ("Mandate granted", "The investigating Role"),
+        ("Diagnosis submitted", "The challenging Role"),
+        ("Challenge DISPUTED, first on a Mandate", "The investigating Role, with the reasons"),
         ("Diagnosis gate YES", "The pm"),
         ("Epic gate YES", "Each ticket's Role"),
         ("A Pull Request opens for a ticket, or takes a new push", "The engineering-lead"),

@@ -3,7 +3,7 @@
 ``build_allowlist`` makes the list from the core rules, the pack's ``gates.yaml`` and the
 commands in ``stack.yaml``. The supervisor writes it into each turn's ``--settings``. The
 hook (``gate.py``) reads that same file, named by ``CLAUDARAMA_OFFICE``,
-and is silent when the variable is unset. Gated actions are never on this list (ADR-0002).
+and blocks when it is unset or unreadable. Gated actions are never on this list (ADR-0002).
 """
 import json
 import os
@@ -14,7 +14,8 @@ from pathlib import Path
 
 OFFICE_ENV = "CLAUDARAMA_OFFICE"
 
-# Run by path (stdlib only), so it works wherever the tool is installed. Claude Code lets the action
+# Run by path (stdlib only; -P keeps this package's directory off sys.path), so it works wherever the
+# tool is installed, with no PYTHONPATH and no checkout. Claude Code lets the action
 # through when a hook exits with anything but 0 or 2, so a hook that cannot start must exit 2 to block.
 HOOK_COMMAND = (
     f"{shlex.quote(sys.executable)} -P {shlex.quote(str(Path(__file__).resolve()))}"
@@ -255,8 +256,8 @@ def decide(payload: object, allow: list[str], deny: list[str]) -> tuple[bool, st
 def main() -> None:
     try:
         settings_path = os.environ.get(OFFICE_ENV)
-        if not settings_path:
-            return  # not an office turn: stay out of the way
+        if not settings_path:  # the hook lives only in turn settings, so no allowlist is an error, not a bypass
+            raise RuntimeError(f"{OFFICE_ENV} is not set")
         perms = json.loads(Path(settings_path).read_text(encoding="utf-8"))["permissions"]
         try:
             payload = json.load(sys.stdin)

@@ -189,5 +189,5 @@ Each has a fallback chosen in the sub-project's spec:
 - how native deny rules such as `Bash(gh auth switch *)` treat chained commands, and the `--disallowedTools` pattern syntax for MCP tools;
 - starting the plugin's Python server through `uv` from the plugin's server config (the HTTP transport to a daemon no longer applies, ADR-0003);
 - a background watcher waking an idle Session to send the phone push.
-- the subscription login check: verified that `CLAUDE_CONFIG_DIR` loses the subscription login (reports "Not logged in"); built the fallback using the normal config directory with `--strict-mcp-config` and an explicit `--allowedTools` list.
+- the subscription login check: verified that `CLAUDE_CONFIG_DIR` loses the subscription login (reports "Not logged in"); built the fallback using the normal config directory with `--strict-mcp-config` and an explicit `--allowedTools` list (sub-project 5 dropped `--allowedTools`, which carried blanket Bash; the allowlist in the turn's settings is the only source of permitted commands).
 

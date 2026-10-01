@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from claudarama.db import get_turn, init_db, queue_turn
-from claudarama.gate import CORE_DENY, build_allowlist, write_turn_settings
+from claudarama.gate import CORE_DENY, OFFICE_ENV, build_allowlist, write_turn_settings
 from claudarama.supervisor import Supervisor
 
 
@@ -23,21 +23,12 @@ STACK = 'commands:\n  test: "pytest -q"\n  local_ci: "make ci"\n'
 GATES = 'deny_rules:\n  - "Bash(git push --force *)"\n'
 
 
-def _hook(tmp_path: Path, payload: dict, env_file: bool = True) -> dict | None:
-    """Run the hook as Claude Code does. Returns the decision JSON, or None when the hook says nothing."""
-    allow, deny = build_allowlist(_pack(tmp_path, STACK, GATES))
-    settings = tmp_path / "settings.json"
-    settings.write_text(json.dumps({"permissions": {"allow": allow, "deny": deny}}))
-    env = {"PATH": "/usr/bin:/bin", "HOME": str(Path.home()), "PYTHONPATH": str(Path(__file__).parents[1] / "src")}
-    if env_file:
-        env["CLAUDARAMA_OFFICE"] = str(settings)
-    out = subprocess.run(
-        [sys.executable, "-m", "claudarama.gate"],
-        input=payload if isinstance(payload, str) else json.dumps(payload),
-        capture_output=True, text=True, env=env,
-    )
+def _hook(tmp_path: Path, payload: dict | str, env_file: bool = True) -> dict:
+    """Run the generated hook command as Claude Code does, in a bare environment, and return the decision."""
+    command, settings = _generated(tmp_path)
+    out = _run_hook_command(tmp_path, command, settings, payload, env_file)
     assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)["hookSpecificOutput"] if out.stdout else None
+    return json.loads(out.stdout)["hookSpecificOutput"]
 
 
 def _bash(tmp_path, command):
@@ -57,8 +48,9 @@ def test_allowlist_survives_missing_pack_files(tmp_path):
     assert "Bash(git status *)" in allow and deny == CORE_DENY
 
 
-def test_hook_is_inert_without_office_env(tmp_path):
-    assert _hook(tmp_path, {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}}, env_file=False) is None
+def test_hook_blocks_without_office_env(tmp_path):
+    decision = _hook(tmp_path, {"tool_name": "Read", "tool_input": {}}, env_file=False)
+    assert decision["permissionDecision"] == "deny" and OFFICE_ENV in decision["permissionDecisionReason"]
 
 
 @pytest.mark.parametrize("command", [
@@ -109,12 +101,10 @@ def test_hook_denies_garbage_input(tmp_path, payload):
 
 
 def test_hook_fails_closed_when_settings_unreadable(tmp_path):
-    out = subprocess.run(
-        [sys.executable, "-m", "claudarama.gate"], input='{"tool_name": "Read", "tool_input": {}}',
-        capture_output=True, text=True,
-        env={"CLAUDARAMA_OFFICE": str(tmp_path / "missing.json"), "PYTHONPATH": str(Path(__file__).parents[1] / "src")},
-    )
-    assert json.loads(out.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    command, _ = _generated(tmp_path)
+    r = subprocess.run(["sh", "-c", command], input='{"tool_name": "Read", "tool_input": {}}', capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin", OFFICE_ENV: str(tmp_path / "missing.json")})
+    assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 @pytest.mark.parametrize("payload", [
@@ -181,12 +171,15 @@ def test_every_turn_launches_with_generated_settings_and_dontask(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def _run_hook_command(tmp_path: Path, command: str, settings: dict, payload: dict):
+def _run_hook_command(tmp_path: Path, command: str, settings: dict, payload: dict | str, env_file: bool = True):
     settings_file = tmp_path / "t1.settings.json"
     settings_file.write_text(json.dumps(settings))
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(Path.home())}  # no PYTHONPATH: nothing but the install
+    if env_file:
+        env[OFFICE_ENV] = str(settings_file)
     return subprocess.run(
-        ["sh", "-c", command], input=json.dumps(payload), capture_output=True, text=True,
-        env={"PATH": "/usr/bin:/bin", "CLAUDARAMA_OFFICE": str(settings_file)},  # no PYTHONPATH: nothing but the install
+        ["sh", "-c", command], input=payload if isinstance(payload, str) else json.dumps(payload),
+        capture_output=True, text=True, env=env,
     )
 
 

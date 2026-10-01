@@ -136,6 +136,15 @@ def review_lesson_gates(db_path: Path, ask=input) -> bool:
     )
 
 
+def review_gates(db_path: Path, gh: Gh = run_gh, ask=input) -> None:
+    """Ask the CEO about every gate that is waiting, in the order of the loop."""
+    review_diagnosis_gates(db_path, ask)
+    review_epic_gates(db_path, ask)
+    review_pr_gates(db_path, gh, ask)
+    advance_to_learning(db_path, gh)
+    review_lesson_gates(db_path, ask)
+
+
 def open_ceo_session(
     claude_binary: str = "claude", db_path: Path | None = None, pack_dir: Path | None = None
 ) -> int:
@@ -144,11 +153,7 @@ def open_ceo_session(
     db_path = db_path or get_office_db_path()
     init_db(db_path)
     if sys.stdin.isatty():  # DISCUSS leaves the gate paused for the session
-        review_diagnosis_gates(db_path)
-        review_epic_gates(db_path)
-        review_pr_gates(db_path)
-        advance_to_learning(db_path)
-        review_lesson_gates(db_path)
+        review_gates(db_path)
     config = mcp_config(db_path, get_owner_token(db_path))
     brief = build_brief(pack_dir or Path.cwd() / ".claudarama", "assistant")
     return _run_claude([claude_binary, "--mcp-config", config, "--append-system-prompt", brief], claude_binary)

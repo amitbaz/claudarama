@@ -5,20 +5,14 @@ office server is started the way Claude Code starts it, from the ``--mcp-config`
 ``claudarama open`` hands to ``claude``.
 """
 import asyncio
-import json
 import os
-import time
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AsyncExitStack
 from pathlib import Path
 
 import pytest
-from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from claudarama.db import (
-    create_turn_token, get_owner_token, get_turn, init_db, mark_turn_running, queue_turn, resolve_token,
-)
-from claudarama.session import mcp_config
+from claudarama.db import create_turn_token, get_turn, init_db, mark_turn_running, queue_turn, resolve_token
+from claudarama.scenario.office import project as _project, script as _script, session as _session, until as _until
 from claudarama.supervisor import Supervisor, acquire_machine_slot, release_machine_slot
 
 
@@ -29,13 +23,6 @@ def home(tmp_path, monkeypatch):
     h.mkdir()
     monkeypatch.setenv("HOME", str(h))
     return h
-
-
-def _script(path, body: str):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"#!/bin/sh\n{body}\n")
-    path.chmod(0o755)
-    return path
 
 
 # --- a failed launch -----------------------------------------------------------
@@ -87,35 +74,6 @@ def bin_dir(tmp_path):
     """Stand-ins first on PATH: a ``gh`` that never reaches GitHub. Each test adds its scripted ``claude``."""
     _script(tmp_path / "bin" / "gh", "exit 1")
     return tmp_path / "bin"
-
-
-def _project(tmp_path, name: str, org_yaml: str = "") -> tuple[Path, Path]:
-    """A project with a pack, and its office's database."""
-    project = tmp_path / name
-    (project / ".claudarama").mkdir(parents=True)
-    (project / ".claudarama" / "org.yaml").write_text(org_yaml)
-    db = tmp_path / "home" / ".claudarama" / name / "office.db"
-    init_db(db)
-    return project, db
-
-
-@asynccontextmanager
-async def _session(project: Path, db: Path, bin_dir: Path):
-    """The CEO's Session on *project*: the office server process Claude Code starts for it."""
-    spec = json.loads(mcp_config(db, get_owner_token(db)))["mcpServers"]["claudarama"]
-    env = {**spec["env"], "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
-    params = StdioServerParameters(command=spec["command"], args=spec["args"], env=env, cwd=project)
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as client:
-            await client.initialize()
-            yield client
-
-
-async def _until(condition, timeout: float = 20) -> None:
-    deadline = time.monotonic() + timeout
-    while not condition():
-        assert time.monotonic() < deadline, "timed out waiting on the office"
-        await asyncio.sleep(0.05)
 
 
 def _status(db: Path, turn_id: str) -> str:

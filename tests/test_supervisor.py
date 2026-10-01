@@ -419,8 +419,7 @@ class TestBuildLaunch:
         assert launch.cmd[launch.cmd.index("--model") + 1] == "opus"
         assert launch.cmd[5] == "--mcp-config"
         assert "--strict-mcp-config" in launch.cmd
-        assert "--allowedTools" in launch.cmd
-        assert launch.cmd[launch.cmd.index("--allowedTools") + 1] == "Bash,Edit,Read,Glob,Grep,LS,View,Replace,Notebook"
+        assert "--allowedTools" not in launch.cmd
         assert "CLAUDARAMA_OFFICE" in launch.env
 
 

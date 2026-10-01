@@ -2,8 +2,8 @@
 
 ``build_allowlist`` makes the list from the core rules, the pack's ``gates.yaml`` and the
 commands in ``stack.yaml``. The supervisor writes it into each turn's ``--settings``. The
-hook (``python -m claudarama.gate``) reads that same file, named by ``CLAUDARAMA_OFFICE``,
-and is silent when the variable is unset. Gated actions are never on this list (ADR-0002).
+hook (``gate.py``) reads that same file, named by ``CLAUDARAMA_OFFICE``,
+and blocks when it is unset or unreadable. Gated actions are never on this list (ADR-0002).
 """
 import json
 import os
@@ -13,6 +13,14 @@ import sys
 from pathlib import Path
 
 OFFICE_ENV = "CLAUDARAMA_OFFICE"
+
+# Run by path (stdlib only; -P keeps this package's directory off sys.path), so it works wherever the
+# tool is installed, with no PYTHONPATH and no checkout. Claude Code lets the action
+# through when a hook exits with anything but 0 or 2, so a hook that cannot start must exit 2 to block.
+HOOK_COMMAND = (
+    f"{shlex.quote(sys.executable)} -P {shlex.quote(str(Path(__file__).resolve()))}"
+    " || { echo 'gate hook failed to run; blocked' >&2; exit 2; }"
+)
 
 CORE_ALLOW = [
     "Read", "Glob", "Grep", "Edit", "Write", "mcp__claudarama__*",
@@ -75,9 +83,7 @@ def write_turn_settings(pack_dir: Path, path: Path) -> None:
     path.write_text(json.dumps({
         "permissions": {"allow": allow, "deny": deny},
         "hooks": {
-            "PreToolUse": [{"matcher": "", "hooks": [
-                {"type": "command", "command": f"{shlex.quote(sys.executable)} -m claudarama.gate"}
-            ]}],
+            "PreToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": HOOK_COMMAND}]}],
             "PreCompact": [{"matcher": "", "hooks": [
                 {"type": "prompt", "prompt": "Save a checkpoint of your progress using the checkpoint tool before compaction."}
             ]}]
@@ -218,46 +224,7 @@ def _state_dir_access(tool_input: dict, cwd: str) -> bool:
     return False
 
 
-def _check_pr_merge(part: str, settings_path: str | None) -> tuple[bool, str]:
-    if not settings_path:
-        return False, "no settings path for PR merge check"
-    try:
-        import subprocess, sqlite3, json, shlex
-        from pathlib import Path
-        from claudarama.db import get_office_db_path
-        turn_id = Path(settings_path).name.removesuffix(".settings.json")
-        db_path = get_office_db_path()
-        args = shlex.split(part)
-        pr_target = ""
-        for a in args[3:]:
-            if not a.startswith("-"):
-                pr_target = a
-                break
-        cmd = ["gh", "pr", "view"]
-        if pr_target:
-            cmd.append(pr_target)
-        cmd.extend(["--json", "number,headRefOid"])
-        out = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-        data = json.loads(out)
-        pr, head = data["number"], data["headRefOid"]
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            turn = conn.execute("SELECT person_id FROM turns WHERE id = ?", (turn_id,)).fetchone()
-            if not turn:
-                return False, f"turn {turn_id} not found"
-            person = conn.execute("SELECT id, level, manager_id FROM people WHERE id = ?", (turn["person_id"],)).fetchone()
-            allowed = person["id"] if person["level"] >= 3 else person["manager_id"]
-            if not allowed:
-                return False, "reviewer has no manager and level < 3"
-            row = conn.execute("SELECT 1 FROM verdicts WHERE pull_request = ? AND head_commit = ? AND reviewer_id = ? AND verdict = 'SHIP'", (pr, head, allowed)).fetchone()
-            if not row:
-                return False, "denied: missing SHIP verdict from allowed reviewer for head commit"
-        return True, ""
-    except Exception as e:
-        return False, f"PR merge check failed: {e}"
-
-
-def decide(payload: object, allow: list[str], deny: list[str], settings_path: str | None = None) -> tuple[bool, str]:
+def decide(payload: object, allow: list[str], deny: list[str]) -> tuple[bool, str]:
     """Return ``(allowed, reason)`` for one PreToolUse payload."""
     if not isinstance(payload, dict) or not isinstance(payload.get("tool_name"), str):
         return False, "cannot parse hook input"
@@ -283,18 +250,14 @@ def decide(payload: object, allow: list[str], deny: list[str], settings_path: st
                 return False, f"denied by rule {rule}"
         if not any(_rule_matches(rule, tool, part) for rule in allow):
             return False, f"{part or tool} is not on the allowlist (no allow rule matches)"
-        if part and part.startswith("gh pr merge"):
-            ok, msg = _check_pr_merge(part, settings_path)
-            if not ok:
-                return False, msg
     return True, "on the allowlist"
 
 
 def main() -> None:
     try:
         settings_path = os.environ.get(OFFICE_ENV)
-        if not settings_path:
-            return  # not an office turn: stay out of the way
+        if not settings_path:  # the hook lives only in turn settings, so no allowlist is an error, not a bypass
+            raise RuntimeError(f"{OFFICE_ENV} is not set")
         perms = json.loads(Path(settings_path).read_text(encoding="utf-8"))["permissions"]
         try:
             payload = json.load(sys.stdin)

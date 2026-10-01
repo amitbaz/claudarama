@@ -306,7 +306,6 @@ class Supervisor:
             self.claude_binary, "-p", brief, "--output-format", "stream-json",
             "--mcp-config", mcp_config(self.host, self.port, token),
             "--strict-mcp-config",
-            "--allowedTools", "Bash,Edit,Read,Glob,Grep,LS,View,Replace,Notebook",
         ]
         if turn["model"]:
             cmd += ["--model", turn["model"]]

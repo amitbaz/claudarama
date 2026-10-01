@@ -51,53 +51,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Mock response text for offline execution/testing",
     )
 
-    # up subcommand
-    up_parser = subparsers.add_parser(
-        "up",
-        help="Start the FastMCP daemon and initialize office.db",
-    )
-    up_parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind the daemon (default: 127.0.0.1)",
-    )
-    up_parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Port to bind the daemon (default: 8000)",
-    )
-
     # open subcommand
     open_parser = subparsers.add_parser(
         "open",
-        help="Connect an interactive Claude session to the daemon's MCP endpoint",
+        help="Open the office: start the CEO's Session with the office server attached",
     )
     open_parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Daemon host (default: 127.0.0.1)",
-    )
-    open_parser.add_argument(
-        "--port",
-        type=int,
-        default=8000,
-        help="Daemon port (default: 8000)",
+        "--attach",
+        action="store_true",
+        help="Open in the Claude Code session this runs in instead of starting one (what /claudarama:open runs)",
     )
 
-    # talk subcommand
-    talk_parser = subparsers.add_parser(
-        "talk",
-        help="Open an interactive session with a named person",
+    # watch subcommand
+    subparsers.add_parser(
+        "watch",
+        help="Wait until a gate opens, say which, and end (the Assistant runs this in the background of the Session)",
     )
-    talk_parser.add_argument("name", help="Name of the person to talk to")
-    talk_parser.add_argument("--host", default="127.0.0.1", help="Daemon host (default: 127.0.0.1)")
-    talk_parser.add_argument("--port", type=int, default=8000, help="Daemon port (default: 8000)")
 
     # status subcommand
     status_parser = subparsers.add_parser(
         "status",
-        help="Show usage totals per person, ticket and ritual",
+        help="Show usage totals per person, ticket and ritual, and a report for each mandate: "
+             "each Role's turns, every NO and FAIL with its reason, every question, and each transcript",
     )
 
     return parser
@@ -116,21 +91,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(message, file=sys.stdout if success else sys.stderr)
         return 0 if success else 1
 
-    if args.command == "up":
-        from claudarama.daemon import run_daemon
-
-        run_daemon(host=args.host, port=args.port)
-        return 0
-
     if args.command == "open":
         from claudarama.session import open_ceo_session
 
-        return open_ceo_session(host=args.host, port=args.port)
+        return open_ceo_session(attach=args.attach)
 
-    if args.command == "talk":
-        from claudarama.session import talk_to_person
+    if args.command == "watch":
+        from claudarama.db import get_office_db_path
+        from claudarama.session import watch_gates
 
-        return talk_to_person(args.name, host=args.host, port=args.port)
+        print(next(watch_gates(get_office_db_path())), flush=True)
+        return 0
 
     if args.command == "eval":
         from claudarama.scenario.cli import run_eval_cli

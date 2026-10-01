@@ -1,0 +1,270 @@
+{
+  "name": "loop",
+  "role": "researcher",
+  "description": "One Mandate walks through a real office, from its grant to CLOSED. A second is stopped by a ticket's second FAIL and returns to investigation. Only claude, gh, the notification sink and the CEO's answers are stand-ins.",
+  "prompt": "The CEO grants one Mandate and answers each gate until the Mandate is CLOSED.",
+  "steps": [
+    {"type": "ceo_action", "calls": [
+      {"tool": "grant", "args": {"mandate": "Speed up checkout", "ticket": "1"}}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "1", "calls": [
+        {"run": ["git", "rev-parse", "--is-inside-work-tree"]},
+        {"run": ["pwd"]},
+        {"run": ["git", "branch", "--show-current"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": "docs/checkout.md"}},
+        {"run": ["sh", "-c", "mkdir -p .claudarama/company/diagnoses && printf '## Measure\\n## Rival explanations\\n## Recommended strategy\\n' > .claudarama/company/diagnoses/checkout.md && git add .claudarama && git -c user.name=Amy -c user.email=amy@example.com commit --quiet -m 'Diagnosis of the slow checkout'"]},
+        {"run": ["gh", "pr", "create", "--title", "Diagnosis: the slow checkout", "--body", "Closes #1"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": ".claudarama/company/diagnoses/checkout.md"}},
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "STANDS", "reasons": "I timed it twice.", "ran": "the page timer"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "DISPUTED", "reasons": "The timing swings by half a second with nothing changed.", "ran": "the page timer, five times on the unchanged commit"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "1", "calls": [
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": ".claudarama/company/diagnoses/checkout.md"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "DISPUTED", "reasons": "The payment page is still inside the spread.", "ran": "the page timer, ten times"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "calls": [
+      {"tool": "list_gates"}
+    ]},
+    {"type": "ceo_action", "input": "DISCUSS"},
+    {"type": "ceo_action", "input": "NO", "reason": "The cart is slow, not the payment page."},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "1", "calls": [
+        {"run": ["sh", "-c", "printf '## Measure\\n## Rival explanations\\n## Recommended strategy\\n' > .claudarama/company/diagnoses/checkout-2.md && git add .claudarama && git -c user.name=Amy -c user.email=amy@example.com commit --quiet -m 'Diagnosis of the slow cart'"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Speed up checkout", "diagnosis_path": ".claudarama/company/diagnoses/checkout-2.md"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Speed up checkout", "verdict": "STANDS", "reasons": "The cart's timing beats the spread in every run.", "ran": "the cart timer, ten times before and after"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "pm", "ticket": "1", "calls": [
+        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": {"2": "copywriter"}}},
+        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": {"2": "fullstack-engineer"}}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "NO", "reason": "Cover the cart's images too."},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "pm", "ticket": "1", "calls": [
+        {"tool": "submit_epic", "args": {"mandate": "Speed up checkout", "tickets": {"2": "fullstack-engineer", "3": "frontend-engineer"}}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "fullstack-engineer", "ticket": "2", "calls": [
+        {"run": ["pwd"]},
+        {"run": ["git", "branch", "--show-current"]},
+        {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #2"]},
+        {"tool": "record_ship_check", "args": {"pull_request": 102, "head_commit": "commit-102", "verdict": "SHIP", "diagnosis_path": ".claudarama/company/diagnoses/checkout-2.md", "command": "pytest"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "2", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 102, "head_commit": "commit-102", "verdict": "SHIP", "diagnosis_path": ".claudarama/company/diagnoses/checkout-2.md", "command": "pytest"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "NO", "reason": "It still loads every image at full size."},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "fullstack-engineer", "ticket": "2", "calls": [
+        {"run": ["gh", "pr", "create", "--title", "Faster checkout", "--body", "Closes #2"]}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "2", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 103, "head_commit": "commit-103", "verdict": "SHIP", "diagnosis_path": ".claudarama/company/diagnoses/checkout-2.md", "command": "pytest"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "frontend-engineer", "ticket": "3", "calls": [
+        {"run": ["pwd"]},
+        {"run": ["git", "branch", "--show-current"]},
+        {"run": ["gh", "pr", "create", "--title", "Smaller cart images", "--body", "Closes #3"]}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "3", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 104, "head_commit": "commit-104", "verdict": "SHIP", "diagnosis_path": ".claudarama/company/diagnoses/checkout-2.md", "command": "pytest"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": ".claudarama/company/diagnoses/checkout.md"}},
+        {"run": ["sh", "-c", "mkdir -p .claudarama/company/retros && printf '## Where it went wrong\\n## Lessons\\n' > .claudarama/company/retros/checkout.md && git add .claudarama && git -c user.name=Kif -c user.email=kif@example.com commit --quiet -m 'Retro of the slow checkout'"]},
+        {"run": ["gh", "pr", "create", "--title", "Retro: the slow checkout", "--body", "Closes #1"]},
+        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": ".claudarama/company/retros/checkout.md", "lessons": [
+          {"text": "Be careful with images.", "scope": "company"}
+        ]}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "NO", "reason": "The Lesson is too vague to act on."},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "1", "calls": [
+        {"tool": "submit_lessons", "args": {"mandate": "Speed up checkout", "lesson_path": ".claudarama/company/retros/checkout.md", "lessons": [
+          {"text": "Time a page ten times before calling it slow.", "scope": "company"},
+          {"text": "Check a page with its real images.", "scope": "designer"}
+        ]}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "ceo_action", "calls": [
+      {"tool": "grant", "args": {"mandate": "Fix the search", "ticket": "4"}}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "4", "calls": [
+        {"run": ["sh", "-c", "mkdir -p .claudarama/company/diagnoses && printf '## Measure\\n## Rival explanations\\n## Recommended strategy\\n' > .claudarama/company/diagnoses/search.md && git add .claudarama && git -c user.name=Amy -c user.email=amy@example.com commit --quiet -m 'Diagnosis of the search'"]},
+        {"run": ["gh", "pr", "create", "--title", "Diagnosis: the search", "--body", "Closes #4"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Fix the search", "diagnosis_path": ".claudarama/company/diagnoses/search.md"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "4", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Fix the search", "verdict": "STANDS", "reasons": "Two-word searches fail in every run.", "ran": "the search check, ten times"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "pm", "ticket": "4", "calls": [
+        {"tool": "submit_epic", "args": {"mandate": "Fix the search", "tickets": {"5": "designer"}}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "designer", "ticket": "5", "calls": [
+        {"run": ["gh", "pr", "create", "--title", "Clearer search results", "--body", "Closes #5"]}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "5", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 107, "head_commit": "commit-107", "verdict": "FAIL", "diagnosis_path": ".claudarama/company/diagnoses/search.md", "command": "pytest"}},
+        {"tool": "record_ship_check", "args": {"pull_request": 107, "head_commit": "commit-107", "verdict": "FAIL", "diagnosis_path": ".claudarama/company/diagnoses/search.md", "command": "pytest", "reason": "A search for two words still finds nothing."}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "designer", "ticket": "5", "calls": [
+        {"run": ["gh", "pr", "close", "107"]},
+        {"run": ["gh", "pr", "create", "--title", "Clearer search results", "--body", "Closes #5"]}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "5", "calls": [
+        {"tool": "record_ship_check", "args": {"pull_request": 108, "head_commit": "commit-108", "verdict": "FAIL", "diagnosis_path": ".claudarama/company/diagnoses/search.md", "command": "pytest", "reason": "Two words now match, but the timing is inside the spread."}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"ticket": "4", "calls": [
+        {"run": ["sh", "-c", "printf '## Measure\\n## Rival explanations\\n## Recommended strategy\\n' > .claudarama/company/diagnoses/search-2.md && git add .claudarama && git -c user.name=Amy -c user.email=amy@example.com commit --quiet -m 'Diagnosis of the search index'"]},
+        {"run": ["gh", "pr", "create", "--title", "Diagnosis: the search index", "--body", "Closes #4"]},
+        {"tool": "submit_diagnosis", "args": {"mandate": "Fix the search", "diagnosis_path": ".claudarama/company/diagnoses/search-2.md"}}
+      ]}
+    ]},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "engineering-lead", "ticket": "4", "calls": [
+        {"tool": "record_challenge", "args": {"mandate": "Fix the search", "verdict": "STANDS", "reasons": "The index is the slow part in every run.", "ran": "the search timer, ten times"}}
+      ]}
+    ]},
+    {"type": "ceo_action", "input": "YES"},
+    {"type": "mock_llm_turns", "turns": [
+      {"role": "pm", "ticket": "4", "calls": [
+        {"tool": "submit_epic", "args": {"mandate": "Fix the search", "tickets": {"6": "designer"}}}
+      ]}
+    ]},
+    {"type": "ceo_action", "command": "status"}
+  ],
+  "checks": {
+    "includes": [
+      "CEO calls grant .* -> \\{\"ok\": true.*\"investigator\": \"researcher\", \"challenger\": \"engineering-lead\"\\}\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "\\| You are the researcher \\(Amy\\)\\.",
+      "\\| Working on ticket: 1",
+      "researcher runs git rev-parse --is-inside-work-tree -> true",
+      "researcher runs pwd -> \\S+/office-worktrees/ticket-1\\n",
+      "researcher runs git branch --show-current -> ticket-1\\n",
+      "researcher calls submit_diagnosis .* -> \\{\"ok\": true",
+      "researcher calls record_challenge .* -> REFUSED: .* only from the engineering-lead \\(Kif\\), its challenging Role, not from researcher \\(Amy\\)",
+      "researcher's turn: done\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "\\| \\*\\*researcher \\(Amy\\) → engineering-lead \\(Kif\\)\\*\\* \\[DIAGNOSIS\\]: .*company/diagnoses/checkout\\.md.*is the measure believable, and how much does it vary with nothing changed\\? What else could explain the evidence\\? What is missing\\?.*`record_challenge`",
+      "engineering-lead calls record_challenge .*swings by half a second.* -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "\\| \\*\\*engineering-lead \\(Kif\\) → researcher \\(Amy\\)\\*\\* \\[DISPUTED\\]: The timing swings by half a second with nothing changed\\.\\n  \\| What was run: the page timer, five times on the unchanged commit\\n",
+      "engineering-lead calls record_challenge .*still inside the spread.* -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO\\n",
+      "Diagnosis gate: mandate 'Speed up checkout', diagnosis at \\.claudarama/company/diagnoses/checkout.md\\nChallenge by engineering-lead \\(Kif\\): DISPUTED: The payment page is still inside the spread\\.\\nWhat was run: the page timer, ten times\\nCEO answers DISCUSS\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO",
+      "ten times\\nCEO answers NO\\nCEO's reason: The cart is slow, not the payment page\\.\\nresearcher is woken on ticket 1\\nMandate 'Speed up checkout': INVESTIGATING\\n",
+      "\\| \\*\\*ceo → researcher \\(Amy\\)\\*\\* \\[NO\\]: Diagnosis gate: The cart is slow, not the payment page\\.",
+      "pm calls submit_epic .*copywriter.* -> REFUSED: .*'copywriter', a Role with no role file",
+      "checkout-2.md\\nChallenge by engineering-lead \\(Kif\\): STANDS: The cart's timing beats the spread in every run\\.\\nWhat was run: the cart timer, ten times before and after\\nCEO answers YES\\nPull request #101 is merged\\nTicket 1 is closed\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
+      "Notification: Diagnosis gate: mandate 'Speed up checkout', diagnosis at \\.claudarama/company/diagnoses/checkout.md\\nChallenge by engineering-lead \\(Kif\\): DISPUTED: The payment page is still inside the spread\\.\\nWhat was run: the page timer, ten times\\nDiagnosis gate: ",
+      "CEO answers DISCUSS\\nMandate 'Speed up checkout': PLANNING, waiting for the CEO\\nThe CEO's checkout is on main; worktrees: ticket-1\\nDiagnosis gate: mandate 'Speed up checkout', diagnosis at \\.claudarama/company/diagnoses/checkout.md\\nChallenge by engineering-lead \\(Kif\\): DISPUTED: The payment page is still inside the spread\\.\\nWhat was run: the page timer, ten times\\nCEO answers NO\\n",
+      "Notification: Diagnosis gate: mandate 'Speed up checkout', diagnosis at \\.claudarama/company/diagnoses/checkout-2.md\\nChallenge by engineering-lead \\(Kif\\): STANDS: The cart's timing beats the spread in every run\\.\\nWhat was run: the cart timer, ten times before and after\\nDiagnosis gate: ",
+      "Notification: Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\nEpic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\nCEO answers NO\\n",
+      "Notification: Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\n  - 3: frontend-engineer \\(Fry\\)\\nEpic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\n  - 3: frontend-engineer \\(Fry\\)\\nCEO answers YES\\n",
+      "Notification: PR gate: #102 has a SHIP verdict for head commit commit-1\\nPR gate: #102 ",
+      "Notification: PR gate: #103 has a SHIP verdict for head commit commit-1\\nPR gate: #103 ",
+      "Notification: PR gate: #104 has a SHIP verdict for head commit commit-1\\nPR gate: #104 ",
+      "Notification: Lesson gate: mandate 'Speed up checkout', Retro at \\.claudarama/company/retros/checkout\\.md, Lessons:\\n  - company: Be careful with images\\.\\nLesson gate: mandate 'Speed up checkout', Retro at \\.claudarama/company/retros/checkout\\.md, Lessons:\\n  - company: Be careful with images\\.\\nCEO answers NO\\n",
+      "Notification: Lesson gate: mandate 'Speed up checkout', Retro at \\.claudarama/company/retros/checkout\\.md, Lessons:\\n  - company: Time a page ten times before calling it slow\\.\\n  - designer \\(Zoidberg\\): Check a page with its real images\\.\\nLesson gate: mandate 'Speed up checkout', Retro at \\.claudarama/company/retros/checkout\\.md, Lessons:\\n  - company: Time a page ten times before calling it slow\\.\\n  - designer \\(Zoidberg\\): Check a page with its real images\\.\\nCEO answers YES\\n",
+      "pm calls submit_epic .* -> \\{\"ok\": true",
+      "pm's turn: done\\nMandate 'Speed up checkout': EXECUTING, waiting for the CEO",
+      "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\nCEO answers NO\\nCEO's reason: Cover the cart's images too\\.\\npm is woken on ticket 1\\nMandate 'Speed up checkout': PLANNING\\n",
+      "\\| \\*\\*ceo → pm \\(Hermes\\)\\*\\* \\[NO\\]: Epic gate: Cover the cart's images too\\.",
+      "Epic gate: mandate 'Speed up checkout', tickets:\\n  - 2: fullstack-engineer \\(Bender\\)\\n  - 3: frontend-engineer \\(Fry\\)\\nCEO answers YES\\nfullstack-engineer is woken on ticket 2\\nfrontend-engineer is woken on ticket 3\\nMandate 'Speed up checkout': EXECUTING\\n",
+      "fullstack-engineer runs pwd -> \\S+/office-worktrees/ticket-2\\n",
+      "fullstack-engineer runs git branch --show-current -> ticket-2\\n",
+      "frontend-engineer runs pwd -> \\S+/office-worktrees/ticket-3\\n",
+      "frontend-engineer runs git branch --show-current -> ticket-3\\n",
+      "fullstack-engineer's turn: done\\nengineering-lead is woken on ticket 2\\nMandate 'Speed up checkout': EXECUTING\\nThe CEO's checkout is on main; worktrees: ticket-2, ticket-3\\n",
+      "fullstack-engineer runs gh pr create .* -> https://github.com/office/project/pull/102",
+      "fullstack-engineer calls record_ship_check .* -> REFUSED: .* only from the engineering-lead",
+      "engineering-lead calls record_ship_check .* -> \\{\"ok\": true",
+      "PR gate: #102 'Faster checkout' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers NO\\nCEO's reason: It still loads every image at full size\\.\\nPull request #102 is closed\\nfullstack-engineer is woken on ticket 2\\nMandate 'Speed up checkout': EXECUTING\\nThe CEO's checkout is on main; worktrees: ticket-2, ticket-3\\n",
+      "\\| \\*\\*ceo → fullstack-engineer \\(Bender\\)\\*\\* \\[NO\\]: PR gate: It still loads every image at full size\\.",
+      "fullstack-engineer runs gh pr create .* -> https://github.com/office/project/pull/103\\nfullstack-engineer's turn: done\\nengineering-lead is woken on ticket 2\\n",
+      "PR gate: #103 'Faster checkout' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers YES\\nPull request #103 is merged\\nTicket 2 is closed\\nMandate 'Speed up checkout': EXECUTING\\nThe CEO's checkout is on main; worktrees: ticket-3\\n",
+      "frontend-engineer runs gh pr create .* -> https://github.com/office/project/pull/104\\nfrontend-engineer's turn: done\\nengineering-lead is woken on ticket 3\\n",
+      "PR gate: #104 'Smaller cart images' \\(mandates Speed up checkout\\), Ship-check: SHIP\\nCEO answers YES\\nPull request #104 is merged\\nTicket 3 is closed\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\nThe CEO's checkout is on main; worktrees: (none|ticket-1)\\n",
+      "engineering-lead calls submit_lessons .* -> \\{\"ok\": true",
+      "engineering-lead's turn: done\\nMandate 'Speed up checkout': CLOSED, waiting for the CEO",
+      "Lesson gate: mandate 'Speed up checkout', Retro at \\.claudarama/company/retros/checkout\\.md, Lessons:\\n  - company: Be careful with images\\.\\nCEO answers NO\\nCEO's reason: The Lesson is too vague to act on\\.\\nengineering-lead is woken on ticket 1\\nMandate 'Speed up checkout': LEARNING\\n",
+      "\\| \\*\\*ceo → engineering-lead \\(Kif\\)\\*\\* \\[NO\\]: Lesson gate: The Lesson is too vague to act on\\.",
+      "Lesson gate: mandate 'Speed up checkout', Retro at \\.claudarama/company/retros/checkout\\.md, Lessons:\\n  - company: Time a page ten times before calling it slow\\.\\n  - designer \\(Zoidberg\\): Check a page with its real images\\.\\nCEO answers YES\\nPull request #105 is merged\\nMandate 'Speed up checkout': CLOSED\\nThe CEO's checkout is on main; worktrees: none\\n",
+      "\\| ## Lessons\\n\\n  \\| - Time a page ten times before calling it slow\\.\\n\\n  \\| ---\\n\\n  \\| ## Ticket\\n\\n  \\| Working on ticket: 4\\n",
+      "\\| ## Lessons\\n\\n  \\| - Time a page ten times before calling it slow\\.\\n  \\| - Check a page with its real images\\.\\n\\n  \\| ---\\n\\n  \\| ## Ticket\\n\\n  \\| Working on ticket: 5\\n",
+      "Epic gate: mandate 'Fix the search', tickets:\\n  - 5: designer \\(Zoidberg\\)\\nCEO answers YES\\ndesigner is woken on ticket 5\\n",
+      "designer runs gh pr create .* -> https://github.com/office/project/pull/107\\ndesigner's turn: done\\nengineering-lead is woken on ticket 5\\n",
+      "engineering-lead calls record_ship_check .*\"command\": \"pytest\"\\} -> REFUSED: .*a FAIL needs a one-line reason",
+      "A search for two words still finds nothing\\.\"\\} -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\ndesigner is woken on ticket 5\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': EXECUTING\\n",
+      "\\| \\*\\*engineering-lead \\(Kif\\) → designer \\(Zoidberg\\)\\*\\* \\[FAIL\\]: Ship-check of #107: A search for two words still finds nothing\\.",
+      "designer runs gh pr create .* -> https://github.com/office/project/pull/108\\ndesigner's turn: done\\nengineering-lead is woken on ticket 5\\n",
+      "inside the spread\\.\"\\} -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nresearcher is woken on ticket 4\\nNotification: Ticket 5 failed its Ship-check 2 times: mandate 'Fix the search' is back with the researcher \\(Amy\\)\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': INVESTIGATING\\n",
+      "\\| \\*\\*engineering-lead \\(Kif\\) → researcher \\(Amy\\)\\*\\* \\[STOPPED\\]: Ticket 5 failed its Ship-check 2 times\\. 1\\) Ship-check of #107: A search for two words still finds nothing\\. 2\\) Ship-check of #108: Two words now match, but the timing is inside the spread\\.",
+      "diagnosis at \\.claudarama/company/diagnoses/search-2.md\\nChallenge by engineering-lead \\(Kif\\): STANDS: The index is the slow part in every run\\.\\nWhat was run: the search timer, ten times\\nCEO answers YES\\nPull request #109 is merged\\npm is woken on ticket 4\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': PLANNING\\n",
+      "pm calls submit_epic .*\"6\": \"designer\".* -> \\{\"ok\": true.*\\npm's turn: done\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': EXECUTING, waiting for the CEO\\n",
+      "researcher calls submit_diagnosis .*\"docs/checkout\\.md\"\\} -> REFUSED: .*a Diagnosis is accepted only at \\.claudarama/company/diagnoses/<name>\\.md, from the project's root, not at 'docs/checkout\\.md'\\n",
+      "researcher runs gh pr create --title 'Diagnosis: the slow checkout' --body 'Closes #1' -> https://github.com/office/project/pull/101\\nresearcher calls submit_diagnosis .* -> \\{\"ok\": true",
+      "CEO calls list_gates \\{\\} -> \\{\"gates\": \\[\\{\"gate\": \"diagnosis:Speed up checkout\", \"shows\": \"[^\"]*\"\\}\\]\\}\\n",
+      "engineering-lead calls submit_lessons .*diagnoses/checkout\\.md\"\\} -> REFUSED: .*a Retro is accepted only at \\.claudarama/company/retros/<name>\\.md, from the project's root, not at '\\.claudarama/company/diagnoses/checkout\\.md'\\n",
+      "engineering-lead runs gh pr create --title 'Retro: the slow checkout' --body 'Closes #1' -> https://github.com/office/project/pull/105\\nengineering-lead calls submit_lessons .* -> \\{\"ok\": true.*\\nengineering-lead's turn: done\\nMandate 'Speed up checkout': CLOSED, waiting for the CEO\\n",
+      "CEO answers YES\\nPull request #106 is merged\\nTicket 4 is closed\\npm is woken on ticket 4\\nMandate 'Speed up checkout': CLOSED\\nMandate 'Fix the search': PLANNING\\n",
+      "CEO runs claudarama status\\n",
+      "\\n--- Mandate 'Speed up checkout': CLOSED ---\\n(?:.+\\n)*Challenge DISPUTED from engineering-lead \\(Kif\\) to researcher \\(Amy\\): The timing swings by half a second with nothing changed\\. What was run: the page timer, five times on the unchanged commit\\n",
+      "\\n--- Mandate 'Speed up checkout': CLOSED ---\\n(?:.+\\n)*NO from ceo to researcher \\(Amy\\) on ticket 1: Diagnosis gate: The cart is slow, not the payment page\\.\\n(?:.+\\n)*NO from ceo to pm \\(Hermes\\) on ticket 1: Epic gate: Cover the cart's images too\\.\\n(?:.+\\n)*NO from ceo to fullstack-engineer \\(Bender\\) on ticket 2: PR gate: It still loads every image at full size\\.\\n(?:.+\\n)*NO from ceo to engineering-lead \\(Kif\\) on ticket 1: Lesson gate: The Lesson is too vague to act on\\.\\n",
+      "\\n--- Mandate 'Fix the search': .+ ---\\n(?:.+\\n)*FAIL from engineering-lead \\(Kif\\) to designer \\(Zoidberg\\) on ticket 5: Ship-check of #107: A search for two words still finds nothing\\.\\n(?:.+\\n)*FAIL from engineering-lead \\(Kif\\) to designer \\(Zoidberg\\) on ticket 5: Ship-check of #108: Two words now match, but the timing is inside the spread\\.\\n"
+    ],
+    "excludes": [
+      "\\| - Be careful with images\\."
+    ]
+  }
+}

@@ -1,7 +1,6 @@
 """GitHub milestone mirror (issue #36). `gh` is faked; nothing touches the network."""
 import json
 import sqlite3
-from types import SimpleNamespace
 
 from claudarama.daemon import create_mcp_server
 from claudarama.db import get_owner_token, init_db, create_turn_token, mark_turn_running, queue_turn
@@ -32,15 +31,12 @@ class FakeGh:
 def _office(tmp_path, gh):
     db = tmp_path / "office.db"
     init_db(db)
-    with sqlite3.connect(db) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
-    server = create_mcp_server(db_path=db, gh=gh)
 
     def call(token, tool, **args):
-        ctx = SimpleNamespace(request_context=SimpleNamespace(request=SimpleNamespace(path_params={"token": token})))
-        return server._tool_manager.get_tool(tool).fn(**args, ctx=ctx)
+        server = create_mcp_server(db_path=db, token=token, gh=gh)
+        return server._tool_manager.get_tool(tool).fn(**args)
 
-    turn = queue_turn(db, "p1")
+    turn = queue_turn(db, "fullstack-engineer")
     mark_turn_running(db, turn)
     return db, call, get_owner_token(db), create_turn_token(db, turn)
 
@@ -48,16 +44,16 @@ def _office(tmp_path, gh):
 def test_grant_creates_milestone_and_ticket_lands_in_it(tmp_path):
     gh = FakeGh()
     db, call, owner, turn = _office(tmp_path, gh)
-    call(owner, "grant", mandate="M1")
-    assert gh.milestones == ["M1"]
+    call(owner, "grant", mandate="M1", ticket="1")
+    assert gh.milestones == ["M1"] and gh.issues == {"1": "M1"}
     call(turn, "ticket_ready", ticket="7", mandate="M1")
-    assert gh.issues == {"7": "M1"} and gh.comments == []
+    assert gh.issues == {"1": "M1", "7": "M1"} and gh.comments == []
 
 
 def test_hand_moved_issue_goes_back_with_a_comment(tmp_path):
     gh = FakeGh()
     db, call, owner, turn = _office(tmp_path, gh)
-    call(owner, "grant", mandate="M1")
+    call(owner, "grant", mandate="M1", ticket="1")
     call(turn, "ticket_ready", ticket="7", mandate="M1")
     gh.issues["7"] = "Other"
     sync(db, gh)

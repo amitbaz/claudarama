@@ -17,8 +17,6 @@ def _script(tmp_path: Path, body: str) -> Path:
 def _setup(tmp_path: Path, org_yaml: str = "", model: str | None = None):
     db = tmp_path / "office.db"
     init_db(db)
-    with sqlite3.connect(db) as c:
-        c.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'eng')")
     project = tmp_path / "proj"
     project.mkdir()
     subprocess.run(["git", "init", "-q", str(project)], check=True)
@@ -35,7 +33,7 @@ def _setup(tmp_path: Path, org_yaml: str = "", model: str | None = None):
         (pack / "org.yaml").write_text(org_yaml)
     out = tmp_path / "out"
     out.mkdir()
-    return db, pack, out, queue_turn(db, "p1", model=model, kind="ritual")
+    return db, pack, out, queue_turn(db, "fullstack-engineer", model=model, kind="ritual")
 
 
 def _rows(db, sql):
@@ -68,7 +66,7 @@ def test_crash_retried_once_on_same_model(tmp_path):
     marker = tmp_path / "ran"
     mock = _script(
         tmp_path,
-        f'echo "$@" >> {marker}\n[ $(wc -l < {marker}) -ge 2 ] && exit 0\nexit 1',
+        f'echo x >> {marker}\n[ $(wc -l < {marker}) -ge 2 ] && exit 0\nexit 1',
     )
     Supervisor(db, pack, out, claude_binary=str(mock)).run_one_turn(tid)
     assert _rows(db, "SELECT status FROM turns")[0]["status"] == "done"
@@ -104,9 +102,20 @@ def test_stall_escalates_to_new_branch_and_queues_higher_model(tmp_path):
     assert new["branch"] in branches
 
 
+def test_a_tickets_stalled_turn_escalates_on_the_tickets_one_branch(tmp_path):
+    db, pack, out, first = _setup(tmp_path, "escalate_stuck_turns: true\nescalation_model: opus\n")
+    tid = queue_turn(db, "fullstack-engineer", thread="ticket:7", kind="ritual")
+    mock = _script(tmp_path, "exec sleep 30")
+    Supervisor(db, pack, out, claude_binary=str(mock), stall_timeout=0.5).run_one_turn(tid)
+    new = next(r for r in _rows(db, "SELECT * FROM turns") if r["id"] not in (first, tid))
+    assert (new["status"], new["model"], new["thread"], new["branch"]) == ("queued", "opus", "ticket:7", None)
+    branches = subprocess.run(["git", "-C", str(pack.parent), "branch"], capture_output=True, text=True).stdout
+    assert "ticket-7" in branches and "escalated" not in branches
+
+
 def test_escalated_turn_that_stalls_does_not_escalate_again(tmp_path):
     db, pack, out, _ = _setup(tmp_path, "escalate_stuck_turns: true\nescalation_model: opus\n")
-    tid = queue_turn(db, "p1", model="opus", branch="escalated/x", kind="ritual")
+    tid = queue_turn(db, "fullstack-engineer", model="opus", branch="escalated/x", kind="ritual")
     mock = _script(tmp_path, "exec sleep 30")
     Supervisor(db, pack, out, claude_binary=str(mock), stall_timeout=0.5).run_one_turn(tid)
     assert len(_rows(db, "SELECT id FROM turns")) == 2  # original _ + this one, no third
@@ -114,7 +123,7 @@ def test_escalated_turn_that_stalls_does_not_escalate_again(tmp_path):
 
 def test_model_flag_passed_to_claude(tmp_path):
     db, pack, out, _ = _setup(tmp_path)
-    tid = queue_turn(db, "p1", model="opus", kind="ritual")
+    tid = queue_turn(db, "fullstack-engineer", model="opus", kind="ritual")
     marker = tmp_path / "args"
     mock = _script(tmp_path, f'echo "$@" > {marker}')
     Supervisor(db, pack, out, claude_binary=str(mock)).run_one_turn(tid)

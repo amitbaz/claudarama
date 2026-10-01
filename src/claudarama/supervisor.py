@@ -1,5 +1,7 @@
 """Supervisor: picks queued turns, builds briefs, spawns claude -p, captures output.
 
+The server of the CEO's Session runs one (``run``) for as long as the Session is open (ADR-0003).
+
 Health: a crash (non-zero exit) is retried once on the same model. A stalled turn
 (no stdout for ``stall_timeout`` seconds) is killed; it fails unless ``org.yaml``
 opts in to escalation, in which case a retry is queued on a higher model on a new branch.
@@ -8,6 +10,7 @@ import os
 import selectors
 import signal
 import subprocess
+import sys
 import time
 import re
 from datetime import datetime, timedelta
@@ -16,12 +19,14 @@ from pathlib import Path
 
 import fcntl
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from claudarama.brief import build_brief
 from claudarama.gate import OFFICE_ENV, write_turn_settings
-from claudarama.session import mcp_config
+from claudarama.mirror import Gh
+from claudarama.session import TOKEN_ENV, follow_github, mcp_config
+from claudarama.worktrees import ticket_worktree
 from claudarama.db import (
+    adopted_lessons,
     ticket_from_thread,
     create_turn_token,
     get_queued_turns,
@@ -34,6 +39,7 @@ from claudarama.db import (
     mark_turn_running,
     queue_turn,
     refuse_turn,
+    requeue_running_turns,
     save_brief,
 )
 
@@ -45,6 +51,7 @@ class TurnLaunch:
     brief: str
     cmd: list[str]
     env: dict[str, str] | None = None  # None = inherit the supervisor's environment
+    cwd: Path | None = None  # the ticket's worktree; None = where the office runs
 
 
 @dataclass
@@ -138,7 +145,13 @@ def is_machine_paused() -> bool:
         return False
 
 def notify_ceo(msg: str) -> None:
-    subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Claudarama"'], capture_output=True)
+    """The notification sink: a macOS notification on the CEO's desktop. Nothing where there is no ``osascript``."""
+    # The message is passed as an argument, never spliced into the script: it may quote a turn's own words.
+    script = 'on run argv\ndisplay notification (item 1 of argv) with title "Claudarama"\nend run'
+    try:
+        subprocess.run(["osascript", "-e", script, msg], capture_output=True)
+    except OSError:
+        pass
 
 def acquire_machine_slot(max_slots: int = 10) -> int:
     """Block until a machine slot is acquired. Returns file descriptor."""
@@ -213,7 +226,7 @@ class Supervisor:
     thread history if this is a reply turn, i.e. ``thread`` is set), saves
     it, spawns ``claude -p`` and streams stdout to a ``.jsonl`` file.
 
-    Sending a message mid-turn is handled by the daemon's ``send`` MCP tool,
+    Sending a message mid-turn is handled by the office server's ``send`` MCP tool,
     which marks the turn done and queues the receiver's turn directly.  The
     supervisor does not manage that lifecycle; it only drives turns that are
     in the ``queued`` state.
@@ -226,29 +239,38 @@ class Supervisor:
         output_dir: Path,
         claude_binary: str = "claude",
         stall_timeout: float | None = None,
-        host: str = "127.0.0.1",
-        port: int = 8000,
+        gh: Gh | None = None,
     ) -> None:
+        self.gh = gh  # with it, the office follows GitHub as each turn ends
         self.db_path = db_path
         self.pack_dir = pack_dir
         self.output_dir = output_dir
         self.claude_binary = claude_binary
         self.stall_timeout_override = stall_timeout
-        self.host = host
-        self.port = port
+        self._closed = threading.Event()
+        self._procs: set[subprocess.Popen] = set()  # the turns running now
+        self._procs_lock = threading.Lock()  # nothing is launched behind ``close``
 
     def _spawn(
         self, launch: TurnLaunch, output_file: Path, stall_timeout: float, mode: str = "w"
     ) -> str:
-        """Run the launch command, streaming stdout to output_file. Returns 'ok', 'crash' or 'stalled'."""
-        with open(output_file, mode, encoding="utf-8") as f:
-            proc = subprocess.Popen(
-                launch.cmd,
-                env=launch.env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+        """Run the launch command, streaming stdout to output_file and stderr beside it.
+
+        Returns 'ok', 'crash' or 'stalled'; 'crash' without launching once the office is closed.
+        """
+        with open(output_file, mode, encoding="utf-8") as f, open(output_file.with_suffix(".stderr"), mode) as err:
+            with self._procs_lock:
+                if self._closed.is_set():
+                    return "crash"
+                proc = subprocess.Popen(
+                    launch.cmd,
+                    env=launch.env,
+                    cwd=launch.cwd,
+                    stdout=subprocess.PIPE,
+                    stderr=err,
+                    start_new_session=True,
+                )
+                self._procs.add(proc)
             sel = selectors.DefaultSelector()
             sel.register(proc.stdout, selectors.EVENT_READ)
             last_output = time.monotonic()
@@ -272,6 +294,7 @@ class Supervisor:
                     last_output = time.monotonic()
                 return "ok" if proc.wait() == 0 else "crash"
             finally:
+                self._procs.discard(proc)
                 sel.close()
                 proc.stdout.close()
 
@@ -297,14 +320,18 @@ class Supervisor:
             working_note = get_working_note(self.db_path, turn["person_id"], ticket)
             turn["model"] = "opus" if is_ticket_hard(self.db_path, ticket) else "sonnet"
 
-        brief = build_brief(pack_dir=self.pack_dir, role=turn["role"], thread=thread, ticket=ticket, working_note=working_note)
+        brief = build_brief(
+            pack_dir=self.pack_dir, role=turn["role"], thread=thread, ticket=ticket, working_note=working_note,
+            lessons=[lesson["text"] for lesson in adopted_lessons(self.db_path, turn["role"])],
+        )
         if turn["branch"]:
             brief += f"\n\nWork on git branch `{turn['branch']}`.\n"
 
         token = create_turn_token(self.db_path, turn["id"])
         cmd = [
-            self.claude_binary, "-p", brief, "--output-format", "stream-json",
-            "--mcp-config", mcp_config(self.host, self.port, token),
+            # `claude -p` rejects stream-json without --verbose.
+            self.claude_binary, "-p", brief, "--output-format", "stream-json", "--verbose",
+            "--mcp-config", mcp_config(self.db_path, token),
             "--strict-mcp-config",
         ]
         if turn["model"]:
@@ -320,7 +347,9 @@ class Supervisor:
         settings_path = self.output_dir / f"{turn['id']}.settings.json"
         write_turn_settings(self.pack_dir, settings_path)
         cmd += ["--settings", str(settings_path), "--permission-mode", "dontAsk"]
-        return TurnLaunch(brief=brief, cmd=cmd, env={**os.environ, OFFICE_ENV: str(settings_path)})
+        # The launcher's own token (the owner's, in the Session's server) stays out of the turn.
+        env = {k: v for k, v in os.environ.items() if k != TOKEN_ENV}
+        return TurnLaunch(brief=brief, cmd=cmd, env={**env, OFFICE_ENV: str(settings_path)})
 
     def _record_usage(self, turn_id: str, turn: dict, output_file: Path) -> None:
         if not output_file.exists():
@@ -375,8 +404,12 @@ class Supervisor:
             else settings.stall_timeout
         )
 
+        # Every turn for a ticket runs in that ticket's worktree; made before the turn is given a token.
+        ticket = ticket_from_thread(turn["thread"])
+        worktree = ticket_worktree(self.pack_dir.parent, ticket) if ticket else None
         launch = self.build_launch(turn, settings)
-        
+        launch.cwd = worktree
+
         slot_fd = acquire_machine_slot(10)
         try:
             save_brief(self.db_path, turn_id, launch.brief)
@@ -389,12 +422,24 @@ class Supervisor:
                 txt = output_file.read_text(encoding="utf-8", errors="replace") if output_file.exists() else ""
                 return "session limit" in txt.lower() or "weekly limit" in txt.lower()
 
+            error = ""
             try:
                 outcome = self._spawn(launch, output_file, stall_timeout)
-                if outcome == "crash" and not _check_limit():
+                if outcome == "crash" and not self._closed.is_set() and not _check_limit():
                     outcome = self._spawn(launch, output_file, stall_timeout, mode="a")
-            except Exception:
-                outcome = "crash"
+            except Exception as e:  # the launch command could not be started at all
+                outcome, error = "crash", str(e)
+
+            if self._closed.is_set() and outcome != "ok":
+                return  # the Session closed mid-turn: left running, to be queued again at the next open
+
+            if self.gh:
+                # Before the turn is marked ended, so whoever waits on it finds what it set moving:
+                # the engineering-lead woken on the pull request it opened, the Retro on the last ticket it closed.
+                try:
+                    follow_github(self.db_path, self.gh)
+                except Exception as e:  # e.g. the database held by another process; the turn still ends
+                    print(f"claudarama: could not follow GitHub: {e}", file=sys.stderr)
 
             self._record_usage(turn_id, turn, output_file)
 
@@ -413,15 +458,21 @@ class Supervisor:
                 mark_turn_queued(self.db_path, turn_id)
                 return
 
-            mark_turn_failed(self.db_path, turn_id)
+            # What `claude` wrote to stderr; failing that, the end of its transcript.
+            stderr_file = output_file.with_suffix(".stderr")
+            error = error or (stderr_file.read_text(errors="replace") if stderr_file.exists() else "")
+            if outcome == "stalled":
+                error = f"no output for {stall_timeout:g} seconds; killed\n{error}"
+            mark_turn_failed(self.db_path, turn_id, (error.strip() or txt.strip())[-2000:])
             # ponytail: escalates once; an already-escalated turn just fails (no pause or notify yet).
             if (
                 outcome == "stalled"
                 and settings.escalate
                 and turn["model"] != settings.escalation_model
             ):
-                branch = f"escalated/{turn_id[:8]}"
-                if self._create_branch(branch):
+                # A ticket has one branch, the one its worktree is on; the retry carries on there.
+                branch = None if ticket else f"escalated/{turn_id[:8]}"
+                if branch is None or self._create_branch(branch):
                     queue_turn(
                         self.db_path,
                         turn["person_id"],
@@ -432,16 +483,67 @@ class Supervisor:
         finally:
             release_machine_slot(slot_fd)
 
-    def poll(self) -> int:
-        """Pick up all queued turns and run them. Returns the count of turns run."""
+    def _run_turn(self, turn_id: str) -> None:
+        """``run_one_turn``, except that a turn it cannot carry through fails with the reason
+        rather than staying queued, to be tried again without end."""
+        try:
+            self.run_one_turn(turn_id)
+        except Exception as e:
+            mark_turn_failed(self.db_path, turn_id, f"{type(e).__name__}: {e}")
+
+    def _launch_queued(self, busy: dict[str, threading.Thread]) -> None:
+        """Start each queued turn the office's cap allows, one at a time for a Role.
+
+        *busy* maps a Person to the thread on their turn.
+        """
         if is_machine_paused():
-            return 0
-        queued = get_queued_turns(self.db_path)
-        if not queued:
-            return 0
-        settings = load_org_settings(self.pack_dir)
-        with ThreadPoolExecutor(max_workers=settings.concurrency) as executor:
-            futures = [executor.submit(self.run_one_turn, turn["id"]) for turn in queued]
-            for future in as_completed(futures):
-                future.result()
-        return len(queued)
+            return
+        cap = load_org_settings(self.pack_dir).concurrency
+        for turn in get_queued_turns(self.db_path):
+            if len(busy) >= cap:
+                break
+            if turn["person_id"] not in busy:
+                thread = threading.Thread(target=self._run_turn, args=(turn["id"],), daemon=True)
+                thread.start()
+                busy[turn["person_id"]] = thread
+
+    def poll(self) -> int:
+        """Launch the queued turns the office's cap allows and wait for them. Returns the count of turns run."""
+        busy: dict[str, threading.Thread] = {}
+        self._launch_queued(busy)
+        for thread in busy.values():
+            thread.join()
+        return len(busy)
+
+    def run(self) -> None:
+        """Run the office until ``close``: launch queued turns as the caps allow, each monitored to its end.
+
+        Only one Session runs an office. A second waits on the office's lock, leaving the
+        running office alone, and takes over when the first closes.
+        """
+        with open(self.db_path.with_name("office.lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # released when this process ends, however it ends
+            requeue_running_turns(self.db_path)  # left by a Session that closed mid-turn
+            busy: dict[str, threading.Thread] = {}
+            while not self._closed.is_set():
+                busy = {person: thread for person, thread in busy.items() if thread.is_alive()}
+                try:
+                    self._launch_queued(busy)
+                except Exception as e:  # e.g. the database held by another process; the office keeps running
+                    print(f"claudarama: could not launch queued turns: {e}", file=sys.stderr)
+                self._closed.wait(0.5)
+
+    def close(self) -> None:
+        """Pause the office: launch nothing more and stop the turns that are running.
+
+        A stopped turn stays running in the database; the next open queues it again.
+        """
+        # ponytail: runs when the Session closes cleanly. A server killed outright leaves its
+        # turns' processes alive until the next open queues those turns again; reap them there if it bites.
+        with self._procs_lock:
+            self._closed.set()
+            for proc in list(self._procs):  # a turn ending now drops itself from the set
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # exited just now

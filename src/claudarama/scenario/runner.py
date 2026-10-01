@@ -14,10 +14,8 @@ from claudarama.scenario.judge import (
     parse_judge_output,
     self_test_all_excludes,
 )
+from claudarama.scenario.office import run_office
 from claudarama.scenario.validator import (
-    MockLlmTurnsStep,
-    CeoActionStep,
-
     Scenario,
     validate_scenario,
     validate_scenario_file,
@@ -136,7 +134,11 @@ def evaluate_scenario(
     passed_count = 0
 
     for _ in range(max(1, runs)):
-        reply = invoker.invoke(scenario.prompt, scenario)
+        stuck = None
+        if scenario.steps:  # the reply is what a real office showed while the steps were walked through it
+            reply, stuck = run_office(scenario)
+        else:
+            reply = invoker.invoke(scenario.prompt, scenario)
 
         # Evaluate checks
         inc_results = evaluate_includes(reply, scenario.checks.includes)
@@ -154,7 +156,7 @@ def evaluate_scenario(
             judge_res = parse_judge_output(judge_raw)
             judge_passed = judge_res.passed
 
-        run_passed = inc_passed and exc_passed and judge_passed
+        run_passed = inc_passed and exc_passed and judge_passed and stuck is None
         if run_passed:
             passed_count += 1
 
@@ -165,6 +167,7 @@ def evaluate_scenario(
                 include_checks=inc_results,
                 exclude_checks=exc_results,
                 judge_result=judge_res,
+                error=stuck,
             )
         )
 
@@ -340,117 +343,3 @@ def evaluate_against_ref(
         git_ref=git_ref,
         comparisons=comparisons,
     )
-
-
-
-import json
-import tempfile
-import sqlite3
-from typing import Optional, Any
-from pathlib import Path
-
-from claudarama.db import init_db, queue_turn, store_message
-from claudarama.supervisor import Supervisor
-
-class ScenarioRunner:
-    """Executes multi-step scenarios end-to-end or falls back to single-turn evaluation."""
-
-    def __init__(self, invoker: Optional[LLMInvoker] = None):
-        self.invoker = invoker or MockInvoker()
-        self.ceo_inputs: list[str] = []
-        self.mock_turns_yielded: list[list[Any]] = []
-
-    def _execute_end_to_end(self, scenario: Scenario) -> str:
-        """Run the scenario against a real DB and Supervisor in a temp directory."""
-        with tempfile.TemporaryDirectory() as temp_dir_name:
-            tmp_path = Path(temp_dir_name)
-            db_path = tmp_path / "office.db"
-            init_db(db_path)
-            
-            # Seed the person
-            with sqlite3.connect(db_path) as conn:
-                conn.execute(
-                    "INSERT INTO people (id, name, role) VALUES (?, ?, ?)",
-                    (scenario.role, scenario.role.capitalize(), scenario.role),
-                )
-            
-            pack_dir = tmp_path / "pack"
-            pack_dir.mkdir()
-            (pack_dir / "company.md").write_text("Test Company")
-            (pack_dir / "profiles").mkdir()
-            (pack_dir / "profiles" / f"{scenario.role}.md").write_text("Test Profile")
-            (pack_dir / "stack.yaml").write_text("")
-            
-            output_dir = tmp_path / "output"
-            output_dir.mkdir()
-            
-            mock_claude = tmp_path / "mock_claude"
-            mock_claude.write_text("#!/bin/sh\nexit 0")
-            mock_claude.chmod(0o755)
-            
-            sup = Supervisor(db_path, pack_dir, output_dir, claude_binary=str(mock_claude))
-            queue_turn(db_path, person_id=scenario.role)
-            
-            final_reply_parts = []
-            
-            for step in scenario.steps:
-                if isinstance(step, MockLlmTurnsStep):
-                    self.mock_turns_yielded.append(step.turns)
-                    body = "\n".join(f"echo '{json.dumps(t)}'" for t in step.turns)
-                    mock_claude.write_text(f"#!/bin/sh\n{body}\nexit 0")
-                    sup.poll()
-                    final_reply_parts.append(json.dumps(step.turns))
-                elif isinstance(step, CeoActionStep):
-                    self.ceo_inputs.append(step.input)
-                    store_message(db_path, "owner", scenario.role, "message", step.input, topic="ceo_action")
-                    queue_turn(db_path, person_id=scenario.role)
-                    final_reply_parts.append(f"CEO ACTION: {step.input}")
-                    
-            return "\n".join(final_reply_parts)
-
-    def run(self, scenario: Scenario, runs: int = 1) -> ScenarioEvaluationResult:
-        if not getattr(scenario, "steps", None):
-            return evaluate_scenario(scenario, invoker=self.invoker, runs=runs)
-
-        turn_results: list[SingleTurnResult] = []
-        passed_count = 0
-
-        # Deterministic multi-step execution (runs=1)
-        for _ in range(1):
-            final_reply = self._execute_end_to_end(scenario)
-            
-            inc_results = evaluate_includes(final_reply, scenario.checks.includes)
-            exc_results = evaluate_excludes(final_reply, scenario.checks.excludes)
-
-            inc_passed = all(r.passed for r in inc_results)
-            exc_passed = all(r.passed for r in exc_results)
-
-            judge_passed = True
-            judge_res = None
-            if scenario.judge:
-                judge_prompt = f"{scenario.judge}\n\n[Person Output]:\n{final_reply}"
-                judge_raw = self.invoker.invoke(judge_prompt, scenario)
-                judge_res = parse_judge_output(judge_raw)
-                judge_passed = judge_res.passed
-
-            run_passed = inc_passed and exc_passed and judge_passed
-            if run_passed:
-                passed_count += 1
-
-            turn_results.append(
-                SingleTurnResult(
-                    passed=run_passed,
-                    person_reply=final_reply,
-                    include_checks=inc_results,
-                    exclude_checks=exc_results,
-                    judge_result=judge_res,
-                )
-            )
-
-        return ScenarioEvaluationResult(
-            scenario_name=scenario.name,
-            passed=passed_count > 0,
-            total_turns=1,
-            passed_turns=passed_count,
-            turn_results=turn_results,
-        )

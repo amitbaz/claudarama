@@ -2,16 +2,15 @@
 import json
 import sqlite3
 import subprocess
-from types import SimpleNamespace
 
 import pytest
 
 from claudarama.daemon import create_mcp_server
 from claudarama.db import (
-    get_owner_token, get_queued_turns, grant_mandate, init_db, queue_turn, record_verdict,
-    register_ticket, submit_diagnosis,
+    get_owner_token, get_queued_turns, grant_mandate, init_db, list_turns, queue_turn, record_verdict,
+    register_ticket, submit_diagnosis, submit_lessons,
 )
-from claudarama.session import advance_to_learning, review_lesson_gates, review_pr_gates
+from claudarama.session import advance_to_learning, follow_github, review_lesson_gates, review_pr_gates
 
 HEAD = "abc123"
 
@@ -20,8 +19,6 @@ HEAD = "abc123"
 def db(tmp_path):
     path = tmp_path / "office.db"
     init_db(path)
-    with sqlite3.connect(path) as conn:
-        conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
     grant_mandate(path, "M1")
     submit_diagnosis(path, "M1", "d.md")
     register_ticket(path, "11", "M1")
@@ -52,7 +49,7 @@ class FakeGh:
 
 
 def _ship(db, verdict="SHIP", head=HEAD):
-    record_verdict(db, 7, head, "lead", verdict, "d.md", "uv run pytest")
+    record_verdict(db, 7, head, "engineering-lead", verdict, "d.md", "uv run pytest", "Not fixed.")
 
 
 def _state(db):
@@ -107,6 +104,37 @@ def test_gate_lists_only_prs_that_close_office_tickets(db):
     assert asked == [] and gh.mutations() == []
 
 
+def _answer_in_the_session(db, gh, gate, answer, **reason):
+    server = create_mcp_server(db_path=db, token=get_owner_token(db), gh=gh)
+    return server._tool_manager.get_tool("answer_gate").fn(gate=gate, answer=answer, **reason)
+
+
+def test_inside_the_session_a_yes_without_a_ship_verdict_is_refused_and_nothing_is_merged(db):
+    gh = FakeGh()
+    with pytest.raises(PermissionError, match="no SHIP verdict for head commit abc123 of PR #7"):
+        _answer_in_the_session(db, gh, "pr:7", "YES")
+    assert gh.mutations() == []
+
+
+def test_inside_the_session_a_no_needs_its_reason_and_closes_the_pr_only_with_one(db):
+    gh = FakeGh()
+    with pytest.raises(ValueError, match="a NO needs a one-line reason"):
+        _answer_in_the_session(db, gh, "pr:7", "NO")
+    assert gh.mutations() == []
+    _answer_in_the_session(db, gh, "pr:7", "NO", reason="It still loads every image.")
+    assert [m[:3] for m in gh.mutations()] == [["pr", "close", "7"]]
+
+
+def test_inside_the_session_an_answer_must_be_yes_no_or_discuss_at_a_gate_that_is_open(db):
+    gh = FakeGh()
+    with pytest.raises(ValueError, match="not YES, NO or DISCUSS"):
+        _answer_in_the_session(db, gh, "pr:7", "MAYBE")
+    with pytest.raises(ValueError, match="no open gate 'epic:M1'; the open gates are: pr:7"):
+        _answer_in_the_session(db, gh, "epic:M1", "YES")
+    assert _answer_in_the_session(db, gh, "pr:7", "discuss") == {"ok": True, "gate": "pr:7", "answer": "DISCUSS", "open": True}
+    assert gh.mutations() == []
+
+
 def test_mandate_moves_to_learning_only_once_all_its_tickets_are_closed(db):
     advance_to_learning(db, FakeGh(issue_state="OPEN"))
     assert _state(db) == ("EXECUTING", 0)
@@ -121,14 +149,42 @@ def test_a_paused_mandate_does_not_advance(db):
     assert _state(db) == ("EXECUTING", 1)
 
 
+# --- the office follows GitHub while it runs (issue #90) ---------------------
+
+
+def _woken(db):
+    return [(t["person_id"], t["thread"]) for t in list_turns(db)]
+
+
+def test_a_pull_request_wakes_the_engineering_lead_once_for_each_head_commit(db):
+    follow_github(db, FakeGh(issue_state="OPEN"))
+    follow_github(db, FakeGh(issue_state="OPEN"))  # the same head commit: nothing new to check
+    assert _woken(db) == [("engineering-lead", "ticket:11")]
+
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE turns SET status = 'done'")
+    # A new push to the same pull request; ticket 99 is not the office's.
+    pushed = [{"number": 7, "title": "Fix it", "headRefOid": "def456",
+               "closingIssuesReferences": [{"number": 11}, {"number": 99}]}]
+    follow_github(db, FakeGh(prs=pushed, issue_state="OPEN"))
+    assert _woken(db) == [("engineering-lead", "ticket:11")] * 2
+
+
+def test_following_github_survives_a_gh_failure(db, capsys):
+    def broken(args):
+        raise subprocess.CalledProcessError(1, "gh")
+    follow_github(db, broken)
+    assert _woken(db) == [] and _state(db) == ("EXECUTING", 0)
+    assert capsys.readouterr().err.count("gh failed") == 2
+
+
 # --- Lesson gate -----------------------------------------------------------
 
 
 def _submit_lessons(db, mandate="M1", token=None):
-    ctx = SimpleNamespace(request_context=SimpleNamespace(
-        request=SimpleNamespace(path_params={"token": token or get_owner_token(db)})))
-    return create_mcp_server(db_path=db)._tool_manager.get_tool("submit_lessons").fn(
-        mandate=mandate, lesson_path="docs/lessons/m1.md", ctx=ctx)
+    server = create_mcp_server(db_path=db, token=token or get_owner_token(db))
+    return server._tool_manager.get_tool("submit_lessons").fn(
+        mandate=mandate, lesson_path=".claudarama/company/retros/m1.md")
 
 
 @pytest.fixture
@@ -141,8 +197,8 @@ def test_submit_lessons_closes_the_mandate_and_pauses_it_for_the_ceo(learning):
     assert _submit_lessons(learning)["status"] == "CLOSED"
     assert _state(learning) == ("CLOSED", 1)
     with sqlite3.connect(learning) as conn:
-        assert conn.execute("SELECT lesson_path FROM mandates").fetchone() == ("docs/lessons/m1.md",)
-    queue_turn(learning, "p1", thread="ticket:11")
+        assert conn.execute("SELECT lesson_path FROM mandates").fetchone() == (".claudarama/company/retros/m1.md",)
+    queue_turn(learning, "fullstack-engineer", thread="ticket:11")
     assert get_queued_turns(learning) == []
 
 
@@ -161,11 +217,29 @@ def test_lesson_yes_finalizes_the_mandate(learning):
         _submit_lessons(learning)  # nothing reopens a closed mandate
 
 
+def test_from_the_terminal_a_retro_stays_off_the_pr_gate_and_is_merged_by_the_yes_at_the_lesson_gate(tmp_path):
+    db = tmp_path / "office.db"
+    init_db(db)
+    grant_mandate(db, "M", "1")  # the Retro is written on the branch of the investigation ticket
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE mandates SET status = 'LEARNING'")
+    submit_lessons(db, "M", ".claudarama/company/retros/m.md")
+    gh = FakeGh(prs=[{"number": 9, "title": "Retro", "state": "OPEN", "headRefOid": "r1", "headRefName": "ticket-1",
+                      "closingIssuesReferences": [{"number": 1}]}])
+    asked = []
+
+    review_pr_gates(db, gh, ask=lambda q: asked.append(q) or "yes")
+    assert asked == [] and gh.mutations() == []
+
+    review_lesson_gates(db, ask=lambda _: "yes", gh=gh)
+    assert gh.mutations() == [["pr", "merge", "9", "--merge", "--match-head-commit", "r1"]]  # with no Ship-check
+
+
 def test_lesson_discuss_stays_paused_and_no_sends_it_back_to_learning(learning):
     _submit_lessons(learning)
     assert review_lesson_gates(learning, ask=lambda _: "discuss")
     assert _state(learning) == ("CLOSED", 1)
-    answers = iter(["maybe", "no"])
+    answers = iter(["maybe", "no", "Too vague."])
     review_lesson_gates(learning, ask=lambda _: next(answers))
     assert _state(learning) == ("LEARNING", 0)
     _submit_lessons(learning)  # can resubmit

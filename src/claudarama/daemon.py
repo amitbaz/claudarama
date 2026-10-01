@@ -18,6 +18,7 @@ from claudarama.db import (
     register_ticket,
     resolve_token,
     store_message,
+    submit_diagnosis,
     thread_key,
 )
 
@@ -152,6 +153,13 @@ def create_mcp_server(
         if gh:
             sync(db_path, gh)
         return {"ok": True, "mandate": mandate}
+
+    @server.tool(name="submit_diagnosis")
+    def submit_diagnosis_tool(mandate: str, diagnosis_path: str, ctx: Context) -> dict:
+        """Submit a Diagnosis: the mandate moves to PLANNING and pauses for the CEO."""
+        authenticate(db_path, _token_of(ctx))
+        submit_diagnosis(db_path, mandate, diagnosis_path)
+        return {"ok": True, "mandate": mandate, "status": "PLANNING", "blocked_on_ceo": True}
 
     @server.tool()
     def ticket_ready(ticket: str, mandate: str, ctx: Context, hard: bool = False) -> dict:

@@ -56,7 +56,12 @@ CREATE TABLE IF NOT EXISTS tokens (
 
 CREATE TABLE IF NOT EXISTS mandates (
     id TEXT PRIMARY KEY,
-    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status TEXT NOT NULL DEFAULT 'INVESTIGATING'
+        CHECK (status IN ('PROPOSED', 'INVESTIGATING', 'PLANNING', 'EXECUTING', 'LEARNING', 'CLOSED')),
+    blocked_on_ceo INTEGER NOT NULL DEFAULT 0,
+    diagnosis_path TEXT,
+    lesson_path TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tickets (
@@ -164,6 +169,14 @@ def init_db(db_path: Path) -> None:
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE turns ADD COLUMN {col} {decl}")
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(mandates)")}
+        for col, decl in (
+            ("status", "TEXT NOT NULL DEFAULT 'INVESTIGATING'"),
+            ("blocked_on_ceo", "INTEGER NOT NULL DEFAULT 0"),
+            ("diagnosis_path", "TEXT"), ("lesson_path", "TEXT"),
+        ):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE mandates ADD COLUMN {col} {decl}")
         cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
         if "thread" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN thread TEXT")
@@ -239,6 +252,8 @@ def get_queued_turns(db_path: Path) -> list[dict]:
             "  AND t.started_at <= CURRENT_TIMESTAMP "
             "  AND NOT EXISTS (SELECT 1 FROM tokens WHERE kind = 'session' AND person_id = t.person_id AND ended_at IS NULL) "
             "  AND NOT EXISTS (SELECT 1 FROM turns WHERE status = 'running' AND person_id = t.person_id) "
+            "  AND NOT EXISTS (SELECT 1 FROM tickets k JOIN mandates m ON m.id = k.mandate_id "
+            "                  WHERE m.blocked_on_ceo = 1 AND t.thread = 'ticket:' || k.id) "
             "ORDER BY t.started_at ASC"
         ).fetchall()
     return [dict(r) for r in rows]
@@ -325,6 +340,39 @@ def grant_mandate(db_path: Path, mandate_id: str) -> None:
     """Record the CEO's grant of a mandate. Granting twice is harmless."""
     with sqlite3.connect(db_path) as conn:
         conn.execute("INSERT OR IGNORE INTO mandates (id) VALUES (?)", (mandate_id,))
+
+
+def submit_diagnosis(db_path: Path, mandate_id: str, diagnosis_path: str) -> None:
+    """Move an INVESTIGATING mandate to PLANNING and pause it for the CEO's Diagnosis gate."""
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE mandates SET status = 'PLANNING', blocked_on_ceo = 1, diagnosis_path = ? "
+            "WHERE id = ? AND status = 'INVESTIGATING'",
+            (diagnosis_path, mandate_id),
+        )
+        if cur.rowcount == 0:
+            raise ValueError(f"mandate {mandate_id!r} is not INVESTIGATING")
+
+
+def diagnosis_gates(db_path: Path) -> list[dict]:
+    """Mandates paused at the Diagnosis gate, awaiting the CEO."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, diagnosis_path FROM mandates "
+            "WHERE blocked_on_ceo = 1 AND status = 'PLANNING' ORDER BY granted_at, rowid"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_diagnosis_gate(db_path: Path, mandate_id: str, approved: bool) -> None:
+    """YES unblocks the mandate into EXECUTING; NO sends it back to INVESTIGATING, unblocked."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE mandates SET blocked_on_ceo = 0, status = ? "
+            "WHERE id = ? AND blocked_on_ceo = 1 AND status = 'PLANNING'",
+            ("EXECUTING" if approved else "INVESTIGATING", mandate_id),
+        )
 
 
 def register_ticket(db_path: Path, ticket: str, mandate_id: str, hard: bool = False) -> None:

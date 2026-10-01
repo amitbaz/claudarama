@@ -2,7 +2,6 @@
 import json
 import sqlite3
 import subprocess
-from types import SimpleNamespace
 
 import pytest
 
@@ -125,10 +124,9 @@ def test_a_paused_mandate_does_not_advance(db):
 
 
 def _submit_lessons(db, mandate="M1", token=None):
-    ctx = SimpleNamespace(request_context=SimpleNamespace(
-        request=SimpleNamespace(path_params={"token": token or get_owner_token(db)})))
-    return create_mcp_server(db_path=db)._tool_manager.get_tool("submit_lessons").fn(
-        mandate=mandate, lesson_path="docs/lessons/m1.md", ctx=ctx)
+    server = create_mcp_server(db_path=db, token=token or get_owner_token(db))
+    return server._tool_manager.get_tool("submit_lessons").fn(
+        mandate=mandate, lesson_path="docs/lessons/m1.md")
 
 
 @pytest.fixture

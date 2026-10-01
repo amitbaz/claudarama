@@ -1,7 +1,6 @@
 """GitHub milestone mirror (issue #36). `gh` is faked; nothing touches the network."""
 import json
 import sqlite3
-from types import SimpleNamespace
 
 from claudarama.daemon import create_mcp_server
 from claudarama.db import get_owner_token, init_db, create_turn_token, mark_turn_running, queue_turn
@@ -34,11 +33,10 @@ def _office(tmp_path, gh):
     init_db(db)
     with sqlite3.connect(db) as conn:
         conn.execute("INSERT INTO people (id, name, role) VALUES ('p1', 'Bender', 'engineer')")
-    server = create_mcp_server(db_path=db, gh=gh)
 
     def call(token, tool, **args):
-        ctx = SimpleNamespace(request_context=SimpleNamespace(request=SimpleNamespace(path_params={"token": token})))
-        return server._tool_manager.get_tool(tool).fn(**args, ctx=ctx)
+        server = create_mcp_server(db_path=db, token=token, gh=gh)
+        return server._tool_manager.get_tool(tool).fn(**args)
 
     turn = queue_turn(db, "p1")
     mark_turn_running(db, turn)

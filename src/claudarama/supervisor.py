@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from claudarama.brief import build_brief
 from claudarama.gate import OFFICE_ENV, write_turn_settings
-from claudarama.session import mcp_config
+from claudarama.session import TOKEN_ENV, mcp_config
 from claudarama.db import (
     ticket_from_thread,
     create_turn_token,
@@ -213,7 +213,7 @@ class Supervisor:
     thread history if this is a reply turn, i.e. ``thread`` is set), saves
     it, spawns ``claude -p`` and streams stdout to a ``.jsonl`` file.
 
-    Sending a message mid-turn is handled by the daemon's ``send`` MCP tool,
+    Sending a message mid-turn is handled by the office server's ``send`` MCP tool,
     which marks the turn done and queues the receiver's turn directly.  The
     supervisor does not manage that lifecycle; it only drives turns that are
     in the ``queued`` state.
@@ -226,16 +226,12 @@ class Supervisor:
         output_dir: Path,
         claude_binary: str = "claude",
         stall_timeout: float | None = None,
-        host: str = "127.0.0.1",
-        port: int = 8000,
     ) -> None:
         self.db_path = db_path
         self.pack_dir = pack_dir
         self.output_dir = output_dir
         self.claude_binary = claude_binary
         self.stall_timeout_override = stall_timeout
-        self.host = host
-        self.port = port
 
     def _spawn(
         self, launch: TurnLaunch, output_file: Path, stall_timeout: float, mode: str = "w"
@@ -304,7 +300,7 @@ class Supervisor:
         token = create_turn_token(self.db_path, turn["id"])
         cmd = [
             self.claude_binary, "-p", brief, "--output-format", "stream-json",
-            "--mcp-config", mcp_config(self.host, self.port, token),
+            "--mcp-config", mcp_config(self.db_path, token),
             "--strict-mcp-config",
         ]
         if turn["model"]:
@@ -320,7 +316,9 @@ class Supervisor:
         settings_path = self.output_dir / f"{turn['id']}.settings.json"
         write_turn_settings(self.pack_dir, settings_path)
         cmd += ["--settings", str(settings_path), "--permission-mode", "dontAsk"]
-        return TurnLaunch(brief=brief, cmd=cmd, env={**os.environ, OFFICE_ENV: str(settings_path)})
+        # The launcher's own token (the owner's, in the Session's server) stays out of the turn.
+        env = {k: v for k, v in os.environ.items() if k != TOKEN_ENV}
+        return TurnLaunch(brief=brief, cmd=cmd, env={**env, OFFICE_ENV: str(settings_path)})
 
     def _record_usage(self, turn_id: str, turn: dict, output_file: Path) -> None:
         if not output_file.exists():

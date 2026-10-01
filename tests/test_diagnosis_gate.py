@@ -22,12 +22,9 @@ def db(tmp_path):
 
 
 def _submit(db):
-    from types import SimpleNamespace
-    ctx = SimpleNamespace(request_context=SimpleNamespace(
-        request=SimpleNamespace(path_params={"token": get_owner_token(db)})))
-    server = create_mcp_server(db_path=db)
+    server = create_mcp_server(db_path=db, token=get_owner_token(db))
     return server._tool_manager.get_tool("submit_diagnosis").fn(
-        mandate="M1", diagnosis_path="d.md", ctx=ctx)
+        mandate="M1", diagnosis_path="d.md")
 
 
 def _state(db):

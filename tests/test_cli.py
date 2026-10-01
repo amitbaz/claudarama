@@ -25,7 +25,6 @@ def assert_help_output(output: str) -> None:
     """Verify standard help text components."""
     assert "usage:" in output.lower() or "claudarama" in output
     assert "setup" in output
-    assert "up" in output
     assert "open" in output
 
 
@@ -155,14 +154,12 @@ def test_cli_eval_scenario_with_judge(tmp_path: Path):
     assert "[PASS]" in result.stdout
 
 
-def test_cli_up_initializes_db_and_invokes_daemon():
-    from unittest.mock import patch
-    import claudarama.cli as cli
-
-    with patch("claudarama.daemon.run_daemon") as mock_run:
-        ret = cli.main(["up", "--port", "8888"])
-        assert ret == 0
-        mock_run.assert_called_once_with(host="127.0.0.1", port=8888)
+def test_cli_up_and_talk_are_gone():
+    """There is no server to start and no direct talk with a Role (ADR-0003)."""
+    for removed in (["up"], ["talk", "Bender"]):
+        result = run_cli(*removed)
+        assert result.returncode == 2
+        assert "invalid choice" in result.stderr
 
 
 def test_cli_open_invokes_claude_session():
@@ -170,20 +167,11 @@ def test_cli_open_invokes_claude_session():
     import claudarama.cli as cli
 
     with patch("claudarama.session.open_ceo_session", return_value=0) as mock_open:
-        ret = cli.main(["open", "--port", "9000"])
-        assert ret == 0
-        mock_open.assert_called_once_with(host="127.0.0.1", port=9000)
+        assert cli.main(["open"]) == 0
+        mock_open.assert_called_once_with()
 
 
 
 
 
 
-def test_cli_talk_invokes_person_session():
-    from unittest.mock import patch
-
-    from claudarama import cli
-
-    with patch("claudarama.session.talk_to_person", return_value=0) as mock_talk:
-        assert cli.main(["talk", "Bender", "--port", "9000"]) == 0
-    mock_talk.assert_called_once_with("Bender", host="127.0.0.1", port=9000)
